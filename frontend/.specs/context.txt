@@ -1,0 +1,58 @@
+# GraphMind Frontend — Context Log
+Last updated: 2026-02-20
+
+## Project Status
+All M3 (Frontend) tasks from Weeks 1–4 are implemented.
+
+## Architecture
+- **Framework:** React 19 + Vite 8 (SPA)
+- **Styling:** Tailwind CSS v4 (via @tailwindcss/vite plugin)
+- **State Management:** Zustand (single store: useAppStore.js)
+- **Graph Visualization:** @xyflow/react (React Flow)
+- **Icons:** lucide-react
+
+## Component Map
+| Component         | File                              | Purpose                                          |
+|-------------------|-----------------------------------|--------------------------------------------------|
+| App               | src/App.jsx                       | Root layout: Sidebar + main content area         |
+| Sidebar           | src/components/Sidebar.jsx        | User switcher, nav, doc list, ingest button      |
+| ChatWindow        | src/components/ChatWindow.jsx     | Chat messages, input, suggestions                |
+| GraphCanvas       | src/components/GraphCanvas.jsx    | React Flow mindmap with custom nodes             |
+| CitationBadge     | src/components/CitationBadge.jsx  | Renders memory citations, links to graph nodes   |
+| PerformanceTimer  | src/components/PerformanceTimer.jsx| "Retrieval completed in X ms" display            |
+| IngestModal       | src/components/IngestModal.jsx    | Document title + content ingestion modal         |
+| ErrorBoundary     | src/components/ErrorBoundary.jsx  | Catches React errors gracefully                  |
+| LoadingSpinner    | src/components/LoadingSpinner.jsx | Reusable loading indicator                       |
+
+## Data Layer
+- **Mock data:** src/data/mockData.js (users, docs, mindmaps, chat responses, fallback)
+- **Store:** src/store/useAppStore.js (Zustand — users, docs, mindmap, chat, ingest, UI state)
+- **Backend calls are commented out** in the store; currently uses simulateChatResponse / simulateIngest.
+
+## Features Implemented
+1. Multi-user switcher (Alice Morgan / Bob Chen) with isolated memory spaces
+2. Sidebar with collapsible nav, ingested documents list, ingest button
+3. Chat window with markdown-bold rendering, typing indicator, auto-scroll
+4. PerformanceTimer: "Retrieval completed in X ms" (excludes LLM time)
+5. CitationBadge: clickable citations that navigate to the mindmap and highlight nodes
+6. GraphCanvas: React Flow with 4 custom node types (concept, entity, document, fact), edge labels, animated edges, minimap, controls, node detail panel
+7. IngestModal: title + content form with loading state and success feedback
+8. Graceful fallback: irrelevant queries return "I don't know / not in memory" message
+9. Error boundary for crash recovery
+10. Dark theme with custom color palette, animations (fadeIn, slideIn, pulse glow, typing dots)
+
+## Predefined Users
+- user_1: "Alice Morgan" — Quantum Computing, Neural Networks, Graph Databases
+- user_2: "Bob Chen" — Climate Change, Renewable Energy
+
+## How to Run
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## Notes
+- No real backend connectivity; all data is static/mocked per agentInstructions.txt
+- Backend integration points are commented in useAppStore.js (search for "BACKEND INTEGRATION")
+- Tailwind v4 uses @theme directive instead of tailwind.config.js

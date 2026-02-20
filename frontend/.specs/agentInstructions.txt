@@ -1,0 +1,11 @@
+-don't touch any files except from frontend directory
+-always read design.md, requirements.md, tasks.md
+-verify which tasks are completed
+-updates tasks depending on requirements
+-for ai agent temporary use ollama llama3.1 which is available locally on my pc (for actual chatting without it other features will work)
+-as of now will not do backend connectivity so keep its logic commented and use static data 
+-for login when you try to authenticate comment the logic and use (predefined users like user1,user2,..)
+-ui must look good so styling alignment and use of attractive elements is necesary with proper hyperlinks and business logic on clicks
+-keep youself updated so you will know context as you go (update context.txt for each update)
+-ensure quality
+-don't do actual backend connectivity at all, you may use temporary server  in frontend directory for handling some necesry request that then will return static data only if your unable to  use static directly in frontend
