@@ -121,25 +121,25 @@ function App() {
           <ReactFlowProvider>
             <GraphCanvas />
           </ReactFlowProvider>
-
-          {/* Graph Toggle Button: Moved inside the graph panel container to lock it relative to the canvas */}
-          <button
-            onClick={() => setGraphHidden(!graphHidden)}
-            className="hidden lg:flex absolute top-[4.5rem] right-4 z-[60] items-center gap-2 px-3.5 py-2 rounded-xl bg-surface/90 border border-white/[0.08] text-xs text-text-secondary hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer backdrop-blur-md shadow-xl btn-press"
-          >
-            {graphHidden ? (
-              <>
-                <PanelRightOpen className="w-4 h-4" />
-                <span className="font-semibold">Show Map</span>
-              </>
-            ) : (
-              <>
-                <PanelRightClose className="w-4 h-4" />
-                <span className="font-semibold">Hide</span>
-              </>
-            )}
-          </button>
         </div>
+
+        {/* Graph Toggle Button: Always visible outside the graph panel */}
+        <button
+          onClick={() => setGraphHidden(!graphHidden)}
+          className="hidden lg:flex absolute top-32 right-4 z-[60] items-center justify-center p-2 rounded-lg bg-surface/90 border border-white/[0.08] text-text-muted hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer backdrop-blur-md shadow-xl btn-press"
+        >
+          {graphHidden ? (
+            <>
+              <PanelRightOpen className="w-4 h-4" />
+              <span className="font-semibold"></span>
+            </>
+          ) : (
+            <>
+              <PanelRightClose className="w-4 h-4" />
+              <span className="font-semibold"></span>
+            </>
+          )}
+        </button>
       </div>
 
       <IngestModal />
