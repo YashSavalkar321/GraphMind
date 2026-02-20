@@ -7,6 +7,9 @@ import {
   simulateIngest,
 } from '../data/mockData';
 
+// ── API base path (Vite proxy: /api → http://localhost:8000) ──
+const API = '/api';
+
 const useAppStore = create((set, get) => ({
   // ──────────────── Sidebar state ────────────────
   sidebarOpen: false,
@@ -106,9 +109,8 @@ const useAppStore = create((set, get) => ({
       selectedNode: null,
       highlightedNodeId: null,
     });
-    // ── BACKEND INTEGRATION ──
-    // When connected to the real API, trigger a mindmap refetch here:
-    // get().fetchMindmap();
+    // Fetch mindmap from backend for the new user
+    get().fetchMindmap();
   },
 
   // ──────────────── Documents state ────────────────
@@ -129,14 +131,18 @@ const useAppStore = create((set, get) => ({
 
   /**
    * Fetch mindmap from backend.
-   * Currently a no-op (mock data is loaded statically).
+   * Falls back to local mock data if the API is unreachable.
    */
   fetchMindmap: async () => {
     const { currentUserId } = get();
-    // ── BACKEND INTEGRATION ──
-    // const res = await fetch(`/api/memory/mindmap?user_id=${currentUserId}`);
-    // const data = await res.json();
-    // set((s) => ({ mindmapData: { ...s.mindmapData, [currentUserId]: data } }));
+    try {
+      const res = await fetch(`${API}/memory/mindmap?user_id=${currentUserId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      set((s) => ({ mindmapData: { ...s.mindmapData, [currentUserId]: data } }));
+    } catch (err) {
+      console.warn('fetchMindmap: API unavailable, using local data', err.message);
+    }
   },
 
   // ──────────────── Node selection & highlight ────────────────
@@ -200,18 +206,21 @@ const useAppStore = create((set, get) => ({
       }),
     }));
 
-    // Simulate network latency
-    await new Promise((r) => setTimeout(r, 300 + Math.random() * 500));
-
-    // ── BACKEND INTEGRATION ──
-    // Replace simulateChatResponse with:
-    // const res = await fetch('/api/chat', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ user_id: currentUserId, query }),
-    // });
-    // const data = await res.json();
-    const data = simulateChatResponse(currentUserId, query);
+    // ── Call backend (fall back to mock if offline) ──
+    let data;
+    try {
+      const res = await fetch(`${API}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: currentUserId, query }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+    } catch (err) {
+      console.warn('chat API unavailable, using mock:', err.message);
+      await new Promise((r) => setTimeout(r, 300 + Math.random() * 500));
+      data = simulateChatResponse(currentUserId, query);
+    }
 
     const aiMessage = {
       id: `msg_${Date.now() + 1}`,
@@ -246,18 +255,24 @@ const useAppStore = create((set, get) => ({
     const { currentUserId } = get();
     set({ isIngesting: true });
 
-    // Simulate network latency
-    await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200));
+    // ── Call backend (fall back to mock if offline) ──
+    let result;
+    try {
+      const res = await fetch(`${API}/memory/ingest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: currentUserId, text: content, source_type: sourceType, title }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      result = await res.json();
+    } catch (err) {
+      console.warn('ingest API unavailable, using mock:', err.message);
+      await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200));
+      result = simulateIngest(currentUserId, title, content);
+    }
 
-    // ── BACKEND INTEGRATION ──
-    // Replace with:
-    // const res = await fetch('/api/memory/ingest', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ user_id: currentUserId, text: content, source_type: sourceType }),
-    // });
-    // const result = await res.json();
-    const result = simulateIngest(currentUserId, title, content);
+    // Normalize: ensure ingestedAt is present
+    if (!result.ingestedAt) result.ingestedAt = new Date().toISOString();
 
     set((s) => {
       const docs = { ...s.ingestedDocs };
@@ -272,6 +287,9 @@ const useAppStore = create((set, get) => ({
 
     // Show success toast
     get().showToast(`"${title}" ingested — ${result.chunks} chunks, ${result.nodesCreated} nodes`);
+
+    // Refresh mindmap with newly created nodes
+    get().fetchMindmap();
 
     return result;
   },

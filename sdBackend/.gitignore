@@ -1,0 +1,9 @@
+__pycache__
+*.pyc
+.env
+.git
+.specs
+.venv
+venv
+*.md
+*.qdrant_local
