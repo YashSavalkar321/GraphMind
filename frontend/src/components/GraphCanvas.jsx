@@ -221,7 +221,7 @@ function GraphCanvasInner() {
 
         {/* Hint overlay */}
         {!selectedNodeData && graphData.nodes.length > 0 && (
-          <div className="absolute top-4 right-14 z-10 flex items-center gap-2 px-3 py-2 rounded-xl glass text-[11px] text-text-muted/50 animate-fade-in pointer-events-none">
+          <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-2 rounded-xl glass text-[11px] text-text-muted/50 animate-fade-in pointer-events-none">
             <MousePointerClick className="w-3.5 h-3.5" />
             Click a node to inspect
           </div>
