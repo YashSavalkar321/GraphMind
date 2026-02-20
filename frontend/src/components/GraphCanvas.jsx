@@ -32,50 +32,56 @@ function MindmapNode({ id, data, selected }) {
 
   return (
     <div
-      className={`relative px-4 py-3 rounded-2xl border-2 shadow-lg transition-all duration-300 ${
+      className={`relative flex flex-col h-auto w-auto rounded-xl border-2 shadow-lg transition-all duration-300 overflow-hidden ${
         selected || isHighlighted
           ? 'scale-110 shadow-2xl ring-1'
           : 'hover:scale-105 hover:shadow-xl'
       }`}
       style={{
-        backgroundColor: `${colors.bg}15`,
-        borderColor: selected || isHighlighted ? colors.border : `${colors.bg}50`,
+        backgroundColor: '#1e293b',
+        borderColor: selected || isHighlighted ? colors.border : `${colors.bg}40`,
         boxShadow: isHighlighted
           ? `0 0 20px cyan, 0 0 40px ${colors.glow}`
           : selected
           ? `0 0 20px ${colors.glow}`
-          : undefined,
+          : '0 2px 8px rgba(0,0,0,0.3)',
         ringColor: selected ? `${colors.bg}40` : undefined,
-        minWidth: '130px',
+        minWidth: '120px',
         maxWidth: '220px',
       }}
     >
-      {/* Handles for edge connections */}
-      <Handle type="target" position={Position.Top} className="!bg-primary/40" />
-      <Handle type="source" position={Position.Bottom} className="!bg-primary/40" />
-      <Handle type="target" position={Position.Left} className="!bg-primary/40" />
-      <Handle type="source" position={Position.Right} className="!bg-primary/40" />
+      {/* Color accent bar */}
+      <div className="h-1 w-full flex-shrink-0" style={{ backgroundColor: colors.bg }} />
 
-      <div className="flex items-center gap-2 mb-1.5">
-        <div
-          className="w-2 h-2 rounded-full flex-shrink-0"
-          style={{ backgroundColor: colors.bg, boxShadow: `0 0 6px ${colors.glow}` }}
-        />
-        <span
-          className="text-[9px] uppercase tracking-widest font-bold truncate"
-          style={{ color: `${colors.bg}bb` }}
-        >
-          {data.nodeType}
-        </span>
-      </div>
-      <p className="text-[12px] font-bold text-text-primary leading-snug break-words">
-        {data.label}
-      </p>
-      {data.description && (
-        <p className="text-[10px] text-text-secondary/70 mt-1.5 leading-snug line-clamp-2 break-words">
-          {data.description}
+      {/* Content */}
+      <div className="px-4 py-3">
+        {/* Handles for edge connections */}
+        <Handle type="target" position={Position.Top} className="!bg-primary/40" />
+        <Handle type="source" position={Position.Bottom} className="!bg-primary/40" />
+        <Handle type="target" position={Position.Left} className="!bg-primary/40" />
+        <Handle type="source" position={Position.Right} className="!bg-primary/40" />
+
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <div
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ backgroundColor: colors.bg, boxShadow: `0 0 6px ${colors.glow}` }}
+          />
+          <span
+            className="text-[9px] uppercase tracking-widest font-bold truncate"
+            style={{ color: colors.border }}
+          >
+            {data.nodeType}
+          </span>
+        </div>
+        <p className="text-[13px] font-bold text-white leading-snug break-words whitespace-normal">
+          {data.label}
         </p>
-      )}
+        {data.description && (
+          <p className="text-[11px] text-text-secondary mt-1.5 leading-snug line-clamp-2 break-words whitespace-normal">
+            {data.description}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -114,7 +120,7 @@ function GraphCanvasInner() {
         ...e,
         markerEnd: { type: MarkerType.ArrowClosed, color: e.style?.stroke || '#6366f1' },
         labelStyle: { fill: '#a5b4fc', fontSize: 10, fontWeight: 600 },
-        labelBgStyle: { fill: '#1e1b4b', fillOpacity: 0.85 },
+        labelBgStyle: { fill: '#111827', fillOpacity: 0.9 },
         labelBgPadding: [6, 3],
         labelBgBorderRadius: 6,
       })),
@@ -155,8 +161,8 @@ function GraphCanvasInner() {
   return (
     <div className="flex flex-col h-full bg-gradient-subtle">
       {/* ── Mini header / stats bar ── */}
-      <header className="flex items-center justify-between px-5 sm:px-6 py-3.5 border-b border-white/[0.06] bg-surface/60 backdrop-blur-md flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between px-5 sm:px-6 py-3.5 border-b border-white/[0.06] bg-surface/80 backdrop-blur-md flex-shrink-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-secondary/30 to-primary/20 flex items-center justify-center ring-1 ring-secondary/20 flex-shrink-0">
             <Network className="w-4 h-4 text-secondary-light" />
           </div>
@@ -199,15 +205,17 @@ function GraphCanvasInner() {
           zoomActivationKeyCode="Control"
           proOptions={{ hideAttribution: true }}
         >
-          <Background color="#312e81" gap={28} size={1} />
+          <Background color="#1e293b" gap={28} size={1} />
           <Controls position="bottom-left" />
           <MiniMap
             nodeColor={(node) => {
               const m = { concept: '#6366f1', entity: '#8b5cf6', document: '#0ea5e9', fact: '#10b981' };
               return m[node.type] || '#6366f1';
             }}
-            maskColor="rgba(15,10,46,0.7)"
+            maskColor="rgba(3,7,18,0.75)"
             position="bottom-right"
+            nodeStrokeWidth={3}
+            style={{ height: 120, width: 160 }}
           />
         </ReactFlow>
 
@@ -221,73 +229,53 @@ function GraphCanvasInner() {
 
         {/* ── Node Detail Panel ── */}
         {selectedNodeData && (
-          <div className="absolute top-4 right-4 w-72 sm:w-80 bg-surface/95 backdrop-blur-lg border border-surface-lighter/50 rounded-2xl shadow-2xl shadow-black/30 overflow-hidden animate-fade-in-scale z-10 max-h-[80vh] overflow-y-auto">
-            {/* Type colour accent */}
+          <div className="absolute top-20 right-4 w-72 sm:w-80 bg-surface backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/50 overflow-hidden animate-fade-in-scale z-[50] max-h-[calc(100vh-120px)] flex flex-col">
             <div
-              className="h-1"
+              className="h-1.5 flex-shrink-0"
               style={{ background: COLOR_MAP[selectedNodeData.data.nodeType]?.bg || '#6366f1' }}
             />
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-surface-lighter/30">
-              <div className="flex items-center gap-2">
-                <Info className="w-4 h-4 text-primary-light flex-shrink-0" />
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <Info className="w-4 h-4 text-primary-light" />
                 <span className="text-sm font-bold text-text-primary">Node Details</span>
               </div>
               <button
                 onClick={() => setSelectedNode(null)}
-                className="w-7 h-7 rounded-lg hover:bg-surface-light/60 flex items-center justify-center transition-all cursor-pointer btn-press flex-shrink-0"
+                className="w-7 h-7 rounded-lg hover:bg-white/[0.08] flex items-center justify-center transition-all cursor-pointer"
               >
-                <X className="w-3.5 h-3.5 text-text-secondary" />
+                <X className="w-4 h-4 text-text-secondary" />
               </button>
             </div>
-            <div className="px-5 py-4 space-y-4">
-              <DetailField
-                label="ID"
-                value={
-                  <span className="text-xs font-mono text-text-secondary bg-surface-lighter/20 px-2.5 py-1 rounded-md inline-block break-all">
-                    {selectedNodeData.id}
-                  </span>
-                }
-              />
+
+            <div className="p-5 space-y-5 overflow-y-auto">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: COLOR_MAP[selectedNodeData.data.nodeType]?.bg || '#6366f1', boxShadow: `0 0 8px ${COLOR_MAP[selectedNodeData.data.nodeType]?.glow || 'transparent'}` }}
+                />
+                <span
+                  className="text-xs font-bold uppercase tracking-wider"
+                  style={{ color: COLOR_MAP[selectedNodeData.data.nodeType]?.border || '#818cf8' }}
+                >
+                  {selectedNodeData.data.nodeType}
+                </span>
+                <span className="text-[10px] font-mono text-text-muted ml-auto">
+                  {selectedNodeData.id}
+                </span>
+              </div>
               <DetailField
                 label="Label"
                 value={
-                  <p className="text-[14px] font-bold text-text-primary break-words leading-snug">
+                  <span className="text-sm font-semibold text-text-primary break-words leading-normal block">
                     {selectedNodeData.data.label}
-                  </p>
-                }
-              />
-              <DetailField
-                label="Type"
-                value={
-                  <span
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider"
-                    style={{
-                      backgroundColor: `${COLOR_MAP[selectedNodeData.data.nodeType]?.bg}20`,
-                      color: COLOR_MAP[selectedNodeData.data.nodeType]?.bg,
-                      border: `1px solid ${COLOR_MAP[selectedNodeData.data.nodeType]?.bg}30`,
-                    }}
-                  >
-                    <div
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: COLOR_MAP[selectedNodeData.data.nodeType]?.bg }}
-                    />
-                    {selectedNodeData.data.nodeType}
                   </span>
                 }
               />
               <DetailField
                 label="Description"
                 value={
-                  <p className="text-xs text-text-secondary leading-relaxed break-words">
-                    {selectedNodeData.data.description}
-                  </p>
-                }
-              />
-              <DetailField
-                label="Source Document"
-                value={
-                  <span className="text-xs font-mono text-secondary bg-secondary/10 px-2.5 py-1 rounded-md border border-secondary/15 inline-block break-all">
-                    {selectedNodeData.data.docSource}
+                  <span className="text-[13px] text-text-secondary leading-relaxed break-words block">
+                    {selectedNodeData.data.description || 'No description available'}
                   </span>
                 }
               />
@@ -307,11 +295,13 @@ export default function GraphCanvas() {
 /* ── Helpers ── */
 function DetailField({ label, value }) {
   return (
-    <div className="overflow-hidden">
-      <p className="text-[10px] uppercase tracking-widest text-text-muted/60 font-semibold mb-1.5">
+    <div className="flex flex-col gap-2">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
         {label}
-      </p>
-      {value}
+      </span>
+      <div className="break-words">
+        {value}
+      </div>
     </div>
   );
 }
@@ -324,7 +314,7 @@ function Legend() {
     { label: 'Fact', color: '#10b981' },
   ];
   return (
-    <div className="hidden sm:flex items-center gap-0.5 px-2.5 py-1.5 rounded-xl bg-surface-light/30 border border-surface-lighter/30">
+    <div className="hidden sm:flex items-center gap-0.5 px-2.5 py-1.5 rounded-xl bg-surface-light/30 border border-surface-lighter/30 flex-shrink-0">
       {items.map((item) => (
         <div
           key={item.label}

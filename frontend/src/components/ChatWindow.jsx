@@ -13,17 +13,14 @@ export default function ChatWindow() {
   const inputRef = useRef(null);
   const currentUser = getCurrentUser();
 
-  /* Auto-scroll on new messages */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  /* Focus input on mount & user switch */
   useEffect(() => {
     inputRef.current?.focus();
   }, [currentUser.id]);
 
-  /* Track scroll to toggle scroll-to-bottom fab */
   const handleScroll = () => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -33,7 +30,6 @@ export default function ChatWindow() {
   const scrollToBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
-  /* Send logic */
   const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed || isTyping) return;
@@ -49,12 +45,11 @@ export default function ChatWindow() {
     }
   };
 
-  /* Render markdown-style bold */
   const renderContent = (text) => {
     const parts = text.split(/(\*\*.*?\*\*)/g);
     return parts.map((part, i) =>
       part.startsWith('**') && part.endsWith('**') ? (
-        <strong key={i} className="text-primary-light font-semibold">
+        <strong key={i} className="text-secondary-light font-semibold">
           {part.slice(2, -2)}
         </strong>
       ) : (
@@ -68,50 +63,47 @@ export default function ChatWindow() {
   return (
     <div className="flex flex-col h-full bg-gradient-subtle">
       {/* ── Header ── */}
-      <header className="flex items-center justify-between px-6 py-3.5 border-b border-white/[0.06] bg-surface/60 backdrop-blur-md flex-shrink-0">
+      <header className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] bg-surface/80 backdrop-blur-md flex-shrink-0 z-10">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary/30 to-accent/20 flex items-center justify-center ring-1 ring-primary/20 flex-shrink-0">
-            <Sparkles className="w-4 h-4 text-primary-light" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/30 to-accent/20 flex items-center justify-center ring-1 ring-primary/20 flex-shrink-0">
+            <Sparkles className="w-5 h-5 text-primary-light" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-text-primary tracking-tight">Chat</h2>
-            <p className="text-[10px] text-text-secondary mt-0.5 truncate">
-              Memory-grounded AI &bull;{' '}
-              <span className="text-primary-light font-medium">{currentUser.name}</span>
+            <h2 className="text-base font-bold text-text-primary tracking-tight">Chat</h2>
+            <p className="text-[11px] text-text-secondary mt-0.5 truncate">
+              Memory-grounded AI &bull; <span className="text-primary-light font-medium">{currentUser.name}</span>
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-success/8 border border-success/15 flex-shrink-0">
-          <div className="w-1.5 h-1.5 rounded-full bg-success shadow-sm shadow-success/50 animate-pulse" />
-          <span className="text-[10px] text-success font-medium">Online</span>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/20 flex-shrink-0">
+          <div className="w-2 h-2 rounded-full bg-success shadow-sm shadow-success/50 animate-pulse" />
+          <span className="text-[11px] text-success font-medium tracking-wide">Online</span>
         </div>
       </header>
 
-      {/* ── Messages area (internal scroll) ── */}
+      {/* ── Messages area ── */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-6 space-y-5 relative"
+        className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-8 space-y-8 relative"
       >
-        {/* Empty / welcome state */}
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in py-6">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/10 flex items-center justify-center mb-5 animate-float ring-1 ring-primary/15">
-              <Bot className="w-8 h-8 sm:w-10 sm:h-10 text-primary-light" />
+          <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in py-8">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/10 flex items-center justify-center mb-6 animate-float ring-1 ring-primary/15">
+              <Bot className="w-10 h-10 text-primary-light" />
             </div>
-            <h3 className="text-lg sm:text-xl font-bold gradient-text mb-2">Welcome to GraphMind</h3>
-            <p className="text-xs sm:text-sm text-text-secondary max-w-md leading-relaxed mb-6 px-2">
+            <h3 className="text-xl sm:text-2xl font-bold gradient-text mb-3">Welcome to GraphMind</h3>
+            <p className="text-sm text-text-secondary max-w-md leading-relaxed mb-8 px-4">
               Ask questions about your ingested documents. Every answer is grounded in your personal
-              knowledge graph with{' '}
-              <span className="text-accent font-medium">memory citations</span> and{' '}
+              knowledge graph with <span className="text-accent font-medium">memory citations</span> and{' '}
               <span className="text-success font-medium">retrieval metrics</span>.
             </p>
-            <div className="w-full max-w-sm">
-              <p className="text-[10px] uppercase tracking-widest text-text-muted/60 font-semibold mb-3">
-                <Zap className="w-3 h-3 inline-block mr-1 -mt-0.5" />
+            <div className="w-full max-w-lg">
+              <p className="text-xs uppercase tracking-widest text-text-muted/70 font-bold mb-4 flex items-center justify-center gap-2">
+                <Zap className="w-4 h-4 text-warning" />
                 Try asking
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {getSuggestions(currentUser.id).map((s, i) => (
                   <button
                     key={i}
@@ -119,10 +111,10 @@ export default function ChatWindow() {
                       setInput(s);
                       inputRef.current?.focus();
                     }}
-                    className="group text-left px-4 py-3.5 rounded-xl bg-surface-light/40 border border-surface-lighter/40 text-xs text-text-secondary hover:text-text-primary hover:border-primary/30 hover:bg-primary/5 transition-all duration-200 cursor-pointer btn-press"
+                    className="group text-left p-4 rounded-xl bg-surface-light/40 border border-surface-lighter/50 text-sm text-text-secondary hover:text-text-primary hover:border-primary/40 hover:bg-primary/10 transition-all duration-200 cursor-pointer shadow-sm"
                   >
-                    <MessageCircle className="w-3.5 h-3.5 text-text-muted/40 group-hover:text-primary-light mb-1.5 transition-colors" />
-                    <span className="leading-relaxed break-words">{s}</span>
+                    <MessageCircle className="w-4 h-4 text-primary/50 group-hover:text-primary-light mb-2 transition-colors" />
+                    <span className="leading-snug block">{s}</span>
                   </button>
                 ))}
               </div>
@@ -130,65 +122,62 @@ export default function ChatWindow() {
           </div>
         )}
 
-        {/* ── Message list ── */}
+        {/* Message list */}
         {messages.map((msg, idx) => (
           <div
             key={msg.id}
-            className={`flex gap-3 ${
-              msg.role === 'user'
-                ? 'justify-end animate-slide-in-right'
-                : 'justify-start animate-fade-in'
+            className={`flex gap-4 ${
+              msg.role === 'user' ? 'justify-end animate-slide-in-right' : 'justify-start animate-fade-in'
             }`}
             style={{ animationDelay: `${idx * 30}ms` }}
           >
-            {/* Bot avatar */}
             {msg.role === 'assistant' && (
-              <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-gradient-to-br from-primary/25 to-accent/15 flex items-center justify-center mt-1 ring-1 ring-primary/15">
-                <Bot className="w-4 h-4 text-primary-light" />
+              <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-primary/25 to-accent/15 flex items-center justify-center mt-1 ring-1 ring-primary/20 shadow-md">
+                <Bot className="w-5 h-5 text-primary-light" />
               </div>
             )}
 
-            {/* Bubble */}
-            <div
-              className={`max-w-[92%] sm:max-w-[88%] lg:max-w-[90%] flex-wrap overflow-hidden ${
-                msg.role === 'user'
-                  ? 'bg-gradient-to-br from-primary to-primary-dark rounded-2xl rounded-br-md px-5 py-3.5 shadow-lg shadow-primary/15'
-                  : 'bg-surface-light/70 backdrop-blur-sm rounded-2xl rounded-bl-md px-5 py-3.5 border border-surface-lighter/40 shadow-sm'
-              }`}
-            >
-              <p
-                className={`text-[13px] sm:text-sm leading-[1.75] break-words ${
-                  msg.role === 'user' ? 'text-white' : 'text-text-primary'
+            <div className={`max-w-[85%] md:max-w-[75%] flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+              {/* Message bubble */}
+              <div
+                className={`w-fit ${
+                  msg.role === 'user'
+                    ? 'bg-surface-lighter/80 border border-surface-lighter rounded-2xl rounded-tr-sm px-5 py-3.5 shadow-md'
+                    : 'bg-surface-light rounded-2xl rounded-tl-sm border border-white/[0.08] shadow-lg'
                 }`}
               >
-                {msg.role === 'assistant' ? renderContent(msg.content) : msg.content}
-              </p>
-
-              {/* ── Metrics + Citations (mandatory for every assistant message) ── */}
-              {msg.role === 'assistant' && (
-                <div className="mt-3 pt-3 border-t border-surface-lighter/30 space-y-2.5 flex-wrap">
-                  <PerformanceTimer timeMs={msg.retrieval_time_ms} />
-                  <CitationBadge citations={msg.memory_citations} />
+                <div className={msg.role === 'assistant' ? 'px-5 pt-4 pb-3' : ''}>
+                  <p
+                    className={`text-[14px] sm:text-[15px] leading-[1.75] break-words ${
+                      msg.role === 'user' ? 'text-white' : 'text-text-primary'
+                    }`}
+                  >
+                    {msg.role === 'assistant' ? renderContent(msg.content) : msg.content}
+                  </p>
                 </div>
-              )}
 
-              {/* Timestamp */}
+                {/* Citations & Metrics isolated in a footer section */}
+                {msg.role === 'assistant' && (
+                  <div className="bg-white/[0.03] px-5 py-3.5 border-t border-white/[0.06] rounded-b-2xl flex flex-col gap-3 items-start">
+                    <PerformanceTimer timeMs={msg.retrieval_time_ms} />
+                    <CitationBadge citations={msg.memory_citations} />
+                  </div>
+                )}
+              </div>
+
+              {/* Timestamp outside the bubble */}
               <p
-                className={`text-[10px] mt-2.5 ${
-                  msg.role === 'user' ? 'text-white/50 text-right' : 'text-text-muted/50'
+                className={`text-[10px] mt-1.5 px-2 ${
+                  msg.role === 'user' ? 'text-text-muted/50 text-right' : 'text-text-muted/50 pl-6'
                 }`}
               >
-                {new Date(msg.timestamp).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
+                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
 
-            {/* User avatar */}
             {msg.role === 'user' && (
               <div
-                className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 text-[11px] font-bold text-white shadow-md ring-2 ring-white/10"
+                className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center mt-1 text-sm font-bold text-white shadow-md ring-2 ring-surface"
                 style={{ backgroundColor: currentUser.color }}
               >
                 {currentUser.avatar}
@@ -197,94 +186,70 @@ export default function ChatWindow() {
           </div>
         ))}
 
-        {/* Typing indicator */}
         {isTyping && (
-          <div className="flex gap-3 animate-fade-in">
-            <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-gradient-to-br from-primary/25 to-accent/15 flex items-center justify-center ring-1 ring-primary/15">
-              <Bot className="w-4 h-4 text-primary-light" />
+          <div className="flex gap-4 animate-fade-in">
+            <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-primary/25 to-accent/15 flex items-center justify-center ring-1 ring-primary/20">
+              <Bot className="w-5 h-5 text-primary-light" />
             </div>
-            <div className="bg-surface-light/70 backdrop-blur-sm rounded-2xl rounded-bl-md px-5 py-3.5 border border-surface-lighter/40">
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
-                  <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
-                  <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
-                </div>
-                <span className="text-[10px] text-text-muted/50 ml-2">Thinking…</span>
+            <div className="bg-surface-light rounded-2xl rounded-tl-sm px-6 py-4 border border-white/[0.08] shadow-lg w-24 flex items-center justify-center">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
+                <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
+                <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
               </div>
             </div>
           </div>
         )}
 
-        <div ref={messagesEndRef} />
+        <div ref={messagesEndRef} className="h-4" />
       </div>
 
-      {/* Scroll-to-bottom FAB */}
       {showScrollBtn && (
-        <div className="absolute bottom-28 right-6 z-10">
+        <div className="absolute bottom-28 right-8 z-10">
           <button
             onClick={scrollToBottom}
-            className="w-8 h-8 rounded-full bg-surface-light border border-surface-lighter/50 shadow-lg flex items-center justify-center hover:bg-primary/20 hover:border-primary/30 transition-all cursor-pointer btn-press animate-fade-in"
+            className="w-10 h-10 rounded-full bg-surface border border-surface-lighter shadow-xl flex items-center justify-center hover:bg-surface-light transition-all cursor-pointer"
           >
-            <ArrowDown className="w-3.5 h-3.5 text-text-secondary" />
+            <ArrowDown className="w-5 h-5 text-text-primary" />
           </button>
         </div>
       )}
 
-      {/* ── Input (sticky bottom, keyboard-safe) ── */}
-      <footer className="px-6 py-4 border-t border-white/[0.06] bg-surface/60 backdrop-blur-md flex-shrink-0 pb-[env(safe-area-inset-bottom,16px)]">
-        <div className="flex items-end gap-3">
-          <div className="flex-1 relative">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask about your memories…"
-              rows={1}
-              className="w-full pl-4 pr-14 py-2.5 bg-surface-light/60 border border-surface-lighter/50 rounded-2xl text-sm text-text-primary placeholder-text-muted/50 resize-none focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15 focus:bg-surface-light/80 transition-all duration-200 leading-[1.6]"
-              style={{ minHeight: '44px', maxHeight: '120px' }}
-              onInput={(e) => {
-                e.target.style.height = 'auto';
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-              }}
-            />
-            {charCount > 0 && (
-              <span className="absolute right-4 bottom-3.5 text-[10px] text-text-muted/30 font-mono">
-                {charCount}
-              </span>
-            )}
-          </div>
+      {/* ── Input Area ── */}
+      <footer className="px-4 sm:px-6 pt-4 pb-6 bg-surface border-t border-surface-lighter/30 flex-shrink-0 z-10">
+        <div className="max-w-4xl mx-auto relative">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask about your memories..."
+            rows={1}
+            className="w-full bg-surface-light/50 border border-surface-lighter/50 rounded-2xl pl-5 pr-14 py-3.5 text-sm text-text-primary placeholder-text-muted/60 resize-none focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all leading-relaxed"
+            style={{ minHeight: '48px', maxHeight: '150px' }}
+            onInput={(e) => {
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+            }}
+          />
+          {charCount > 0 && (
+            <span className="absolute right-14 bottom-3 text-[10px] text-text-muted/40 font-mono">
+              {charCount}
+            </span>
+          )}
           <button
             onClick={handleSend}
             disabled={!input.trim() || isTyping}
-            className="flex-shrink-0 w-11 h-11 rounded-2xl bg-gradient-to-br from-primary to-primary-dark hover:from-primary-light hover:to-primary disabled:from-surface-lighter disabled:to-surface-lighter disabled:cursor-not-allowed flex items-center justify-center transition-all duration-200 cursor-pointer btn-press shadow-lg shadow-primary/20 disabled:shadow-none"
-            title="Send message (Enter)"
+            className="absolute right-2.5 bottom-2 mb-2 w-9 h-9 flex items-center justify-center rounded-xl bg-primary hover:bg-primary-light disabled:bg-surface-lighter disabled:opacity-40 disabled:cursor-not-allowed text-white transition-all cursor-pointer"
           >
-            <Send
-              className={`w-4 h-4 text-white transition-transform ${
-                input.trim() ? 'translate-x-0.5 -translate-y-0.5' : ''
-              }`}
-            />
+            <Send className=" w-4 h-4" />
           </button>
         </div>
-        <p className="text-[10px] text-text-muted/30 mt-2 pl-1 hidden sm:block">
-          Press{' '}
-          <kbd className="px-1.5 py-0.5 rounded bg-surface-lighter/20 text-text-muted/40 font-mono text-[9px]">
-            Enter
-          </kbd>{' '}
-          to send &bull;{' '}
-          <kbd className="px-1.5 py-0.5 rounded bg-surface-lighter/20 text-text-muted/40 font-mono text-[9px]">
-            Shift+Enter
-          </kbd>{' '}
-          for new line
-        </p>
       </footer>
     </div>
   );
 }
 
-/* ── Suggestion bubbles per user ── */
 function getSuggestions(userId) {
   if (userId === 'user_1') {
     return [

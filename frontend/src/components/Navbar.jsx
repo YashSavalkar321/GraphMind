@@ -20,7 +20,7 @@ export default function Navbar() {
   }, []);
 
   return (
-    <nav className="h-[60px] flex items-center justify-between px-4 sm:px-6 lg:px-8 border-b border-white/[0.06] bg-surface flex-shrink-0 z-40">
+    <nav className="h-[60px] flex items-center justify-between px-6 sm:px-8 lg:px-10 border-b border-white/[0.06] bg-surface flex-shrink-0 z-40">
       {/* ── Logo ── */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary via-primary-dark to-accent flex items-center justify-center shadow-lg shadow-primary/30 animate-pulse-glow flex-shrink-0">
@@ -37,13 +37,13 @@ export default function Navbar() {
       </div>
 
       {/* ── Right side ── */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-3 sm:gap-4">
         {/* Ingest button */}
         <button
           onClick={openIngestModal}
-          className="group flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-primary-dark hover:from-primary-light hover:to-primary text-white text-sm font-semibold transition-all duration-200 cursor-pointer btn-press shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30"
+          className="group flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-primary hover:bg-primary-light text-white text-sm font-medium transition-all duration-200 cursor-pointer btn-press shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30"
         >
-          <Upload className="w-4 h-4 group-hover:scale-110 transition-transform flex-shrink-0" />
+          <Upload className="w-4 h-4 flex-shrink-0" />
           <span className="hidden sm:inline">Ingest</span>
         </button>
 

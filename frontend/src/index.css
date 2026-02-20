@@ -10,14 +10,14 @@
   --color-secondary:       #0ea5e9;
   --color-secondary-light: #38bdf8;
   --color-accent:          #8b5cf6;
-  --color-surface:         #1e1b4b;
-  --color-surface-light:   #272359;
-  --color-surface-lighter: #312e81;
-  --color-bg:              #0f0a2e;
-  --color-bg-light:        #150f3d;
-  --color-text-primary:    #e0e7ff;
-  --color-text-secondary:  #a5b4fc;
-  --color-text-muted:      #6466b0;
+  --color-surface:         #111827;
+  --color-surface-light:   #1e293b;
+  --color-surface-lighter: #334155;
+  --color-bg:              #030712;
+  --color-bg-light:        #0f172a;
+  --color-text-primary:    #e2e8f0;
+  --color-text-secondary:  #94a3b8;
+  --color-text-muted:      #64748b;
   --color-success:         #10b981;
   --color-warning:         #f59e0b;
   --color-danger:          #ef4444;
@@ -27,8 +27,8 @@
    Base Reset
    ══════════════════════════════════════════════════════ */
 *, *::before, *::after {
-  margin: 0;
-  padding: 0;
+  margin: 0.7;
+  padding: 2.5;
   box-sizing: border-box;
 }
 
@@ -70,10 +70,10 @@ html, body, #root {
 .react-flow__background { background-color: var(--color-bg) !important; }
 
 .react-flow__handle {
-  width: 6px !important;
-  height: 6px !important;
-  background: rgba(99, 102, 241, 0.4) !important;
-  border: 1px solid rgba(129, 140, 248, 0.5) !important;
+  width: 4px !important;
+  height: 4px !important;
+  background: rgba(148, 163, 184, 0.5) !important;
+  border: none !important;
   opacity: 0 !important;
   transition: opacity 0.2s !important;
 }
@@ -83,7 +83,7 @@ html, body, #root {
 }
 
 .react-flow__minimap {
-  background-color: #1a1740 !important;
+  background-color: #0f172a !important;
   border-radius: 12px !important;
   border: 1px solid rgba(99,102,241,0.2) !important;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
@@ -98,16 +98,16 @@ html, body, #root {
 }
 
 .react-flow__controls-button {
-  background-color: #1e1b4b !important;
+  background-color: #111827 !important;
   border-color: rgba(99,102,241,0.2) !important;
-  fill: #a5b4fc !important;
+  fill: #94a3b8 !important;
   width: 32px !important;
   height: 32px !important;
   transition: background 0.15s !important;
 }
 .react-flow__controls-button:hover {
-  background-color: #312e81 !important;
-  fill: #e0e7ff !important;
+  background-color: #1e293b !important;
+  fill: #e2e8f0 !important;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -162,7 +162,7 @@ html, body, #root {
 
 /* Glass surface (no border — add border-* utilities at the usage site) */
 .glass {
-  background: rgba(18, 14, 50, 0.82);
+  background: rgba(17, 24, 39, 0.88);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
