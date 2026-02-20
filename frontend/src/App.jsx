@@ -18,22 +18,18 @@ function App() {
   const [graphHidden, setGraphHidden] = useState(false);
   const containerRef = useRef(null);
   const isDragging = useRef(false);
-  const lastXRef = useRef(0);
 
   const startDrag = useCallback((e) => {
     e.preventDefault();
     isDragging.current = true;
     document.body.style.userSelect = 'none'; // Prevent text selection while dragging
-    lastXRef.current = e.touches ? e.touches[0].clientX : e.clientX;
 
     const moveHandler = (ev) => {
       if (!isDragging.current || !containerRef.current) return;
-      const currentX = ev.touches ? ev.touches[0].clientX : ev.clientX;
-      const delta = currentX - lastXRef.current;
       const rect = containerRef.current.getBoundingClientRect();
-      const change = (delta / rect.width) * 100;
-      setChatPct((prev) => Math.min(80, Math.max(20, prev + change)));
-      lastXRef.current = currentX; // Update for next move
+      const clientX = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const pct = ((clientX - rect.left) / rect.width) * 100;
+      setChatPct(Math.min(80, Math.max(20, pct)));
     };
 
     const upHandler = () => {
@@ -130,7 +126,7 @@ function App() {
         {/* Graph Toggle Button: Always visible outside the graph panel */}
         <button
           onClick={() => setGraphHidden(!graphHidden)}
-          className="hidden lg:flex absolute top-32 right-4 z-[60] items-center justify-center p-2 rounded-lg bg-surface/90 border border-white/[0.08] text-text-muted hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer backdrop-blur-md shadow-xl btn-press"
+          className="hidden lg:flex absolute top-20 right-4 z-[60] items-center justify-center p-2 rounded-lg bg-surface/90 border border-white/[0.08] text-text-muted hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer backdrop-blur-md shadow-xl btn-press"
         >
           {graphHidden ? (
             <>
