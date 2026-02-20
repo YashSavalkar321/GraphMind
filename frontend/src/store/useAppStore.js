@@ -1,61 +1,98 @@
 import { create } from 'zustand';
-import { USERS, INGESTED_DOCS, MINDMAP_DATA, simulateChatResponse, simulateIngest } from '../data/mockData';
+import {
+  USERS,
+  INGESTED_DOCS,
+  MINDMAP_DATA,
+  simulateChatResponse,
+  simulateIngest,
+} from '../data/mockData';
 
 const useAppStore = create((set, get) => ({
-  // ---- User state ----
+  // ──────────────── User state ────────────────
   users: USERS,
   currentUserId: USERS[0].id,
+
   getCurrentUser: () => {
-    const state = get();
-    return state.users.find((u) => u.id === state.currentUserId) || USERS[0];
+    const { users, currentUserId } = get();
+    return users.find((u) => u.id === currentUserId) || USERS[0];
   },
+
   switchUser: (userId) => {
     set({
       currentUserId: userId,
       messages: [],
       isTyping: false,
       selectedNode: null,
+      highlightedNodeId: null,
     });
+    // ── BACKEND INTEGRATION ──
+    // When connected to the real API, trigger a mindmap refetch here:
+    // get().fetchMindmap();
   },
 
-  // ---- Documents state ----
+  // ──────────────── Documents state ────────────────
   ingestedDocs: { ...INGESTED_DOCS },
+
   getDocsForCurrentUser: () => {
-    const state = get();
-    return state.ingestedDocs[state.currentUserId] || [];
+    const { ingestedDocs, currentUserId } = get();
+    return ingestedDocs[currentUserId] || [];
   },
 
-  // ---- Mindmap state ----
+  // ──────────────── Mindmap state ────────────────
   mindmapData: { ...MINDMAP_DATA },
-  getMindmapForCurrentUser: () => {
-    const state = get();
-    return state.mindmapData[state.currentUserId] || { nodes: [], edges: [] };
-  },
-  selectedNode: null,
-  setSelectedNode: (node) => set({ selectedNode: node }),
 
-  // ---- Chat state ----
+  getMindmapForCurrentUser: () => {
+    const { mindmapData, currentUserId } = get();
+    return mindmapData[currentUserId] || { nodes: [], edges: [] };
+  },
+
+  /**
+   * Fetch mindmap from backend.
+   * Currently a no-op (mock data is loaded statically).
+   */
+  fetchMindmap: async () => {
+    const { currentUserId } = get();
+    // ── BACKEND INTEGRATION ──
+    // const res = await fetch(`/api/memory/mindmap?user_id=${currentUserId}`);
+    // const data = await res.json();
+    // set((s) => ({ mindmapData: { ...s.mindmapData, [currentUserId]: data } }));
+  },
+
+  // ──────────────── Node selection & highlight ────────────────
+  selectedNode: null,
+  setSelectedNode: (nodeId) => set({ selectedNode: nodeId }),
+
+  /**
+   * Highlighted node for the "citation click → glow on graph" flow.
+   * Auto-clears after 3 s so the glow is temporary.
+   */
+  highlightedNodeId: null,
+  highlightNode: (nodeId) => {
+    set({ highlightedNodeId: nodeId, selectedNode: nodeId });
+    setTimeout(() => {
+      set((s) => (s.highlightedNodeId === nodeId ? { highlightedNodeId: null } : {}));
+    }, 3000);
+  },
+
+  // ──────────────── Chat state ────────────────
   messages: [],
   isTyping: false,
 
   sendMessage: async (query) => {
     const { currentUserId, messages } = get();
 
-    // Add user message
     const userMessage = {
       id: `msg_${Date.now()}`,
       role: 'user',
       content: query,
       timestamp: new Date().toISOString(),
     };
-
     set({ messages: [...messages, userMessage], isTyping: true });
 
-    // Simulate network delay (300-800ms)
-    await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 500));
+    // Simulate network latency
+    await new Promise((r) => setTimeout(r, 300 + Math.random() * 500));
 
-    // Get mock response
-    // --- BACKEND INTEGRATION ---
+    // ── BACKEND INTEGRATION ──
     // Replace simulateChatResponse with:
     // const res = await fetch('/api/chat', {
     //   method: 'POST',
@@ -74,37 +111,37 @@ const useAppStore = create((set, get) => ({
       memory_citations: data.memory_citations,
     };
 
-    set((state) => ({
-      messages: [...state.messages, aiMessage],
+    set((s) => ({
+      messages: [...s.messages, aiMessage],
       isTyping: false,
     }));
   },
 
-  // ---- Ingest state ----
+  // ──────────────── Ingest state ────────────────
   isIngestModalOpen: false,
   openIngestModal: () => set({ isIngestModalOpen: true }),
   closeIngestModal: () => set({ isIngestModalOpen: false }),
   isIngesting: false,
 
-  ingestDocument: async (title, content) => {
+  ingestDocument: async (title, content, sourceType = 'text') => {
     const { currentUserId } = get();
     set({ isIngesting: true });
 
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 1200));
+    // Simulate network latency
+    await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200));
 
-    // --- BACKEND INTEGRATION ---
-    // Replace simulateIngest with:
+    // ── BACKEND INTEGRATION ──
+    // Replace with:
     // const res = await fetch('/api/memory/ingest', {
     //   method: 'POST',
     //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ user_id: currentUserId, title, content }),
+    //   body: JSON.stringify({ user_id: currentUserId, text: content, source_type: sourceType }),
     // });
     // const result = await res.json();
     const result = simulateIngest(currentUserId, title, content);
 
-    set((state) => {
-      const docs = { ...state.ingestedDocs };
+    set((s) => {
+      const docs = { ...s.ingestedDocs };
       if (!docs[currentUserId]) docs[currentUserId] = [];
       docs[currentUserId] = [result, ...docs[currentUserId]];
       return {
@@ -114,14 +151,23 @@ const useAppStore = create((set, get) => ({
       };
     });
 
+    // Show success toast
+    get().showToast(`"${title}" ingested — ${result.chunks} chunks, ${result.nodesCreated} nodes`);
+
     return result;
   },
 
-  // ---- UI state ----
-  activeView: 'chat', // 'chat' | 'graph'
+  // ──────────────── UI state ────────────────
+  /** Mobile view tab: 'chat' | 'graph' */
+  activeView: 'chat',
   setActiveView: (view) => set({ activeView: view }),
-  sidebarCollapsed: false,
-  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+
+  // ──────────────── Toast ────────────────
+  toast: null,
+  showToast: (message, type = 'success') => {
+    set({ toast: { message, type } });
+    setTimeout(() => set({ toast: null }), 4000);
+  },
 }));
 
 export default useAppStore;

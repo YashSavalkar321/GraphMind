@@ -1,146 +1,206 @@
 @import "tailwindcss";
 
-/* Custom CSS variables for GraphMind theme */
+/* ══════════════════════════════════════════════════════
+   GraphMind Design Tokens
+   ══════════════════════════════════════════════════════ */
 @theme {
-  --color-primary: #6366f1;
-  --color-primary-light: #818cf8;
-  --color-primary-dark: #4f46e5;
-  --color-secondary: #0ea5e9;
+  --color-primary:         #6366f1;
+  --color-primary-light:   #818cf8;
+  --color-primary-dark:    #4f46e5;
+  --color-secondary:       #0ea5e9;
   --color-secondary-light: #38bdf8;
-  --color-accent: #8b5cf6;
-  --color-surface: #1e1b4b;
-  --color-surface-light: #312e81;
-  --color-surface-lighter: #3730a3;
-  --color-bg: #0f0a2e;
-  --color-bg-light: #150f3d;
-  --color-text-primary: #e0e7ff;
-  --color-text-secondary: #a5b4fc;
-  --color-text-muted: #6366f1;
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
-  --color-node-concept: #6366f1;
-  --color-node-document: #0ea5e9;
-  --color-node-entity: #8b5cf6;
-  --color-node-fact: #10b981;
+  --color-accent:          #8b5cf6;
+  --color-surface:         #1e1b4b;
+  --color-surface-light:   #272359;
+  --color-surface-lighter: #312e81;
+  --color-bg:              #0f0a2e;
+  --color-bg-light:        #150f3d;
+  --color-text-primary:    #e0e7ff;
+  --color-text-secondary:  #a5b4fc;
+  --color-text-muted:      #6466b0;
+  --color-success:         #10b981;
+  --color-warning:         #f59e0b;
+  --color-danger:          #ef4444;
 }
 
-/* Global styles */
-* {
+/* ══════════════════════════════════════════════════════
+   Base Reset
+   ══════════════════════════════════════════════════════ */
+*, *::before, *::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-body {
+html, body, #root {
+  height: 100dvh;          /* dynamic viewport — avoids mobile browser chrome issues */
+  overflow: hidden;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background-color: var(--color-bg);
   color: var(--color-text-primary);
-  overflow: hidden;
-  height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-#root {
-  height: 100vh;
-  overflow: hidden;
+::selection {
+  background: rgba(99, 102, 241, 0.35);
+  color: #e0e7ff;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
+*:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.55);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
-::-webkit-scrollbar-track {
-  background: var(--color-bg);
-}
-
+/* Scrollbar */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-surface-lighter);
-  border-radius: 3px;
+  background: rgba(99, 102, 241, 0.25);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.5); }
+
+/* ══════════════════════════════════════════════════════
+   React Flow Overrides
+   ══════════════════════════════════════════════════════ */
+.react-flow__node       { font-size: 12px !important; }
+.react-flow__edge-path  { stroke-width: 2 !important; }
+.react-flow__background { background-color: var(--color-bg) !important; }
+
+.react-flow__handle {
+  width: 6px !important;
+  height: 6px !important;
+  background: rgba(99, 102, 241, 0.4) !important;
+  border: 1px solid rgba(129, 140, 248, 0.5) !important;
+  opacity: 0 !important;
+  transition: opacity 0.2s !important;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-primary);
-}
-
-/* React Flow custom styles */
-.react-flow__node {
-  border-radius: 12px !important;
-  font-size: 12px !important;
-}
-
-.react-flow__edge-path {
-  stroke-width: 2 !important;
-}
-
-.react-flow__background {
-  background-color: var(--color-bg) !important;
+.react-flow__node:hover .react-flow__handle {
+  opacity: 1 !important;
 }
 
 .react-flow__minimap {
-  background-color: var(--color-surface) !important;
-  border-radius: 8px !important;
-  border: 1px solid var(--color-surface-lighter) !important;
-}
-
-.react-flow__controls {
-  border-radius: 8px !important;
-  border: 1px solid var(--color-surface-lighter) !important;
+  background-color: #1a1740 !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(99,102,241,0.2) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
   overflow: hidden;
 }
 
+.react-flow__controls {
+  border-radius: 12px !important;
+  border: 1px solid rgba(99,102,241,0.2) !important;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+}
+
 .react-flow__controls-button {
-  background-color: var(--color-surface) !important;
-  border-color: var(--color-surface-lighter) !important;
-  fill: var(--color-text-primary) !important;
+  background-color: #1e1b4b !important;
+  border-color: rgba(99,102,241,0.2) !important;
+  fill: #a5b4fc !important;
+  width: 32px !important;
+  height: 32px !important;
+  transition: background 0.15s !important;
 }
-
 .react-flow__controls-button:hover {
-  background-color: var(--color-surface-lighter) !important;
+  background-color: #312e81 !important;
+  fill: #e0e7ff !important;
 }
 
-/* Animations */
+/* ══════════════════════════════════════════════════════
+   Keyframes
+   ══════════════════════════════════════════════════════ */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-
-@keyframes slideIn {
-  from { opacity: 0; transform: translateX(-16px); }
-  to { opacity: 1; transform: translateX(0); }
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
 }
-
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.3); }
-  50% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.6); }
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
-
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulseGlow {
+  0%,100% { box-shadow: 0 0 8px rgba(99,102,241,0.25); }
+  50%     { box-shadow: 0 0 22px rgba(99,102,241,0.55); }
+}
 @keyframes typing {
-  0% { opacity: 0.3; }
-  50% { opacity: 1; }
-  100% { opacity: 0.3; }
+  0%,100% { opacity: 0.25; transform: scale(0.75); }
+  50%     { opacity: 1;    transform: scale(1); }
+}
+@keyframes float {
+  0%,100% { transform: translateY(0); }
+  50%     { transform: translateY(-5px); }
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
+/* ══════════════════════════════════════════════════════
+   Animation Utilities
+   ══════════════════════════════════════════════════════ */
+.animate-fade-in        { animation: fadeIn 0.3s ease-out both; }
+.animate-fade-in-scale  { animation: fadeInScale 0.25s ease-out both; }
+.animate-slide-in       { animation: slideInLeft 0.3s ease-out both; }
+.animate-slide-in-right { animation: slideInRight 0.3s ease-out both; }
+.animate-pulse-glow     { animation: pulseGlow 2.5s ease-in-out infinite; }
+.animate-float          { animation: float 3s ease-in-out infinite; }
+
+.typing-dot              { animation: typing 1.4s ease-in-out infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ══════════════════════════════════════════════════════
+   Reusable Utilities
+   ══════════════════════════════════════════════════════ */
+
+/* Glass surface (no border — add border-* utilities at the usage site) */
+.glass {
+  background: rgba(18, 14, 50, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
-.animate-slide-in {
-  animation: slideIn 0.3s ease-out;
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(125deg, #818cf8 0%, #38bdf8 55%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-.animate-pulse-glow {
-  animation: pulse-glow 2s infinite;
+/* Dark background with subtle radial glow */
+.bg-gradient-subtle {
+  background-color: var(--color-bg);
+  background-image: radial-gradient(ellipse 70% 40% at 60% 0%, rgba(99,102,241,0.08), transparent);
 }
 
-.typing-dot {
-  animation: typing 1.4s infinite;
+/* Button press feedback */
+.btn-press { transition: transform 0.1s ease; }
+.btn-press:active { transform: scale(0.96); }
+
+/* Word-break safety */
+.break-words {
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
-.typing-dot:nth-child(2) {
-  animation-delay: 0.2s;
+/* Multi-line clamp */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-
-.typing-dot:nth-child(3) {
-  animation-delay: 0.4s;
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

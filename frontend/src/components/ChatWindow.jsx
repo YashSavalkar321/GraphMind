@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, AlertCircle } from 'lucide-react';
+import { Send, Bot, Sparkles, MessageCircle, ArrowDown, Zap } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import PerformanceTimer from './PerformanceTimer';
 import CitationBadge from './CitationBadge';
@@ -7,24 +7,38 @@ import CitationBadge from './CitationBadge';
 export default function ChatWindow() {
   const { messages, isTyping, sendMessage, getCurrentUser } = useAppStore();
   const [input, setInput] = useState('');
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const messagesEndRef = useRef(null);
+  const scrollContainerRef = useRef(null);
   const inputRef = useRef(null);
   const currentUser = getCurrentUser();
 
-  // Auto-scroll to bottom on new messages
+  /* Auto-scroll on new messages */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Focus input on mount
+  /* Focus input on mount & user switch */
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+  }, [currentUser.id]);
 
+  /* Track scroll to toggle scroll-to-bottom fab */
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 200);
+  };
+
+  const scrollToBottom = () =>
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+
+  /* Send logic */
   const handleSend = async () => {
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if (!trimmed || isTyping) return;
     setInput('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
     await sendMessage(trimmed);
   };
 
@@ -35,103 +49,146 @@ export default function ChatWindow() {
     }
   };
 
-  // Render markdown-like bold
+  /* Render markdown-style bold */
   const renderContent = (text) => {
     const parts = text.split(/(\*\*.*?\*\*)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return (
-          <strong key={i} className="text-primary-light font-semibold">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-      return <span key={i}>{part}</span>;
-    });
+    return parts.map((part, i) =>
+      part.startsWith('**') && part.endsWith('**') ? (
+        <strong key={i} className="text-primary-light font-semibold">
+          {part.slice(2, -2)}
+        </strong>
+      ) : (
+        <span key={i}>{part}</span>
+      ),
+    );
   };
 
-  return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-surface-lighter bg-surface/50 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-primary/20 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-primary-light" />
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-text-primary">GraphMind Chat</h2>
-            <p className="text-xs text-text-secondary">
-              Memory-grounded AI • {currentUser.name}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-          <span className="text-xs text-text-secondary">Online</span>
-        </div>
-      </div>
+  const charCount = input.length;
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {/* Welcome message */}
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in">
-            <div className="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center mb-4">
-              <Bot className="w-8 h-8 text-primary-light" />
-            </div>
-            <h3 className="text-lg font-semibold text-text-primary mb-2">Welcome to GraphMind</h3>
-            <p className="text-sm text-text-secondary max-w-md leading-relaxed">
-              Ask questions about your ingested documents. Every answer is grounded in your personal knowledge graph
-              with full memory citations and retrieval metrics.
+  return (
+    <div className="flex flex-col h-full bg-gradient-subtle">
+      {/* ── Header ── */}
+      <header className="flex items-center justify-between px-6 py-3.5 border-b border-white/[0.06] bg-surface/60 backdrop-blur-md flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary/30 to-accent/20 flex items-center justify-center ring-1 ring-primary/20 flex-shrink-0">
+            <Sparkles className="w-4 h-4 text-primary-light" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-text-primary tracking-tight">Chat</h2>
+            <p className="text-[10px] text-text-secondary mt-0.5 truncate">
+              Memory-grounded AI &bull;{' '}
+              <span className="text-primary-light font-medium">{currentUser.name}</span>
             </p>
-            <div className="flex flex-wrap gap-2 mt-6 justify-center">
-              {getSuggestions(currentUser.id).map((suggestion, i) => (
-                <button
-                  key={i}
-                  onClick={() => {
-                    setInput(suggestion);
-                    inputRef.current?.focus();
-                  }}
-                  className="px-3 py-2 rounded-xl bg-surface-light border border-surface-lighter text-xs text-text-secondary hover:text-text-primary hover:border-primary/30 transition-all cursor-pointer"
-                >
-                  {suggestion}
-                </button>
-              ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-success/8 border border-success/15 flex-shrink-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-success shadow-sm shadow-success/50 animate-pulse" />
+          <span className="text-[10px] text-success font-medium">Online</span>
+        </div>
+      </header>
+
+      {/* ── Messages area (internal scroll) ── */}
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-6 space-y-5 relative"
+      >
+        {/* Empty / welcome state */}
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in py-6">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/10 flex items-center justify-center mb-5 animate-float ring-1 ring-primary/15">
+              <Bot className="w-8 h-8 sm:w-10 sm:h-10 text-primary-light" />
+            </div>
+            <h3 className="text-lg sm:text-xl font-bold gradient-text mb-2">Welcome to GraphMind</h3>
+            <p className="text-xs sm:text-sm text-text-secondary max-w-md leading-relaxed mb-6 px-2">
+              Ask questions about your ingested documents. Every answer is grounded in your personal
+              knowledge graph with{' '}
+              <span className="text-accent font-medium">memory citations</span> and{' '}
+              <span className="text-success font-medium">retrieval metrics</span>.
+            </p>
+            <div className="w-full max-w-sm">
+              <p className="text-[10px] uppercase tracking-widest text-text-muted/60 font-semibold mb-3">
+                <Zap className="w-3 h-3 inline-block mr-1 -mt-0.5" />
+                Try asking
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {getSuggestions(currentUser.id).map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setInput(s);
+                      inputRef.current?.focus();
+                    }}
+                    className="group text-left px-4 py-3.5 rounded-xl bg-surface-light/40 border border-surface-lighter/40 text-xs text-text-secondary hover:text-text-primary hover:border-primary/30 hover:bg-primary/5 transition-all duration-200 cursor-pointer btn-press"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5 text-text-muted/40 group-hover:text-primary-light mb-1.5 transition-colors" />
+                    <span className="leading-relaxed break-words">{s}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Chat messages */}
-        {messages.map((msg) => (
+        {/* ── Message list ── */}
+        {messages.map((msg, idx) => (
           <div
             key={msg.id}
-            className={`flex gap-3 animate-fade-in ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex gap-3 ${
+              msg.role === 'user'
+                ? 'justify-end animate-slide-in-right'
+                : 'justify-start animate-fade-in'
+            }`}
+            style={{ animationDelay: `${idx * 30}ms` }}
           >
+            {/* Bot avatar */}
             {msg.role === 'assistant' && (
-              <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center mt-1">
+              <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-gradient-to-br from-primary/25 to-accent/15 flex items-center justify-center mt-1 ring-1 ring-primary/15">
                 <Bot className="w-4 h-4 text-primary-light" />
               </div>
             )}
+
+            {/* Bubble */}
             <div
-              className={`max-w-[70%] ${
+              className={`max-w-[92%] sm:max-w-[88%] lg:max-w-[90%] flex-wrap overflow-hidden ${
                 msg.role === 'user'
-                  ? 'bg-primary rounded-2xl rounded-br-md px-4 py-3'
-                  : 'bg-surface-light rounded-2xl rounded-bl-md px-4 py-3 border border-surface-lighter'
+                  ? 'bg-gradient-to-br from-primary to-primary-dark rounded-2xl rounded-br-md px-5 py-3.5 shadow-lg shadow-primary/15'
+                  : 'bg-surface-light/70 backdrop-blur-sm rounded-2xl rounded-bl-md px-5 py-3.5 border border-surface-lighter/40 shadow-sm'
               }`}
             >
-              <p className={`text-sm leading-relaxed ${msg.role === 'user' ? 'text-white' : 'text-text-primary'}`}>
+              <p
+                className={`text-[13px] sm:text-sm leading-[1.75] break-words ${
+                  msg.role === 'user' ? 'text-white' : 'text-text-primary'
+                }`}
+              >
                 {msg.role === 'assistant' ? renderContent(msg.content) : msg.content}
               </p>
+
+              {/* ── Metrics + Citations (mandatory for every assistant message) ── */}
               {msg.role === 'assistant' && (
-                <div className="mt-2 space-y-1">
+                <div className="mt-3 pt-3 border-t border-surface-lighter/30 space-y-2.5 flex-wrap">
                   <PerformanceTimer timeMs={msg.retrieval_time_ms} />
                   <CitationBadge citations={msg.memory_citations} />
                 </div>
               )}
+
+              {/* Timestamp */}
+              <p
+                className={`text-[10px] mt-2.5 ${
+                  msg.role === 'user' ? 'text-white/50 text-right' : 'text-text-muted/50'
+                }`}
+              >
+                {new Date(msg.timestamp).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </p>
             </div>
+
+            {/* User avatar */}
             {msg.role === 'user' && (
               <div
-                className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 text-[10px] font-bold text-white"
+                className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 text-[11px] font-bold text-white shadow-md ring-2 ring-white/10"
                 style={{ backgroundColor: currentUser.color }}
               >
                 {currentUser.avatar}
@@ -143,14 +200,17 @@ export default function ChatWindow() {
         {/* Typing indicator */}
         {isTyping && (
           <div className="flex gap-3 animate-fade-in">
-            <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center">
+            <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-gradient-to-br from-primary/25 to-accent/15 flex items-center justify-center ring-1 ring-primary/15">
               <Bot className="w-4 h-4 text-primary-light" />
             </div>
-            <div className="bg-surface-light rounded-2xl rounded-bl-md px-4 py-3 border border-surface-lighter">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
-                <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
-                <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
+            <div className="bg-surface-light/70 backdrop-blur-sm rounded-2xl rounded-bl-md px-5 py-3.5 border border-surface-lighter/40">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
+                  <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
+                  <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
+                </div>
+                <span className="text-[10px] text-text-muted/50 ml-2">Thinking…</span>
               </div>
             </div>
           </div>
@@ -159,8 +219,20 @@ export default function ChatWindow() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className="px-6 py-4 border-t border-surface-lighter bg-surface/50 backdrop-blur-sm">
+      {/* Scroll-to-bottom FAB */}
+      {showScrollBtn && (
+        <div className="absolute bottom-28 right-6 z-10">
+          <button
+            onClick={scrollToBottom}
+            className="w-8 h-8 rounded-full bg-surface-light border border-surface-lighter/50 shadow-lg flex items-center justify-center hover:bg-primary/20 hover:border-primary/30 transition-all cursor-pointer btn-press animate-fade-in"
+          >
+            <ArrowDown className="w-3.5 h-3.5 text-text-secondary" />
+          </button>
+        </div>
+      )}
+
+      {/* ── Input (sticky bottom, keyboard-safe) ── */}
+      <footer className="px-6 py-4 border-t border-white/[0.06] bg-surface/60 backdrop-blur-md flex-shrink-0 pb-[env(safe-area-inset-bottom,16px)]">
         <div className="flex items-end gap-3">
           <div className="flex-1 relative">
             <textarea
@@ -168,42 +240,64 @@ export default function ChatWindow() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about your memories..."
+              placeholder="Ask about your memories…"
               rows={1}
-              className="w-full px-4 py-3 bg-surface-light border border-surface-lighter rounded-xl text-sm text-text-primary placeholder-text-muted resize-none focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
+              className="w-full pl-4 pr-14 py-2.5 bg-surface-light/60 border border-surface-lighter/50 rounded-2xl text-sm text-text-primary placeholder-text-muted/50 resize-none focus:outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15 focus:bg-surface-light/80 transition-all duration-200 leading-[1.6]"
               style={{ minHeight: '44px', maxHeight: '120px' }}
               onInput={(e) => {
                 e.target.style.height = 'auto';
                 e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
               }}
             />
+            {charCount > 0 && (
+              <span className="absolute right-4 bottom-3.5 text-[10px] text-text-muted/30 font-mono">
+                {charCount}
+              </span>
+            )}
           </div>
           <button
             onClick={handleSend}
             disabled={!input.trim() || isTyping}
-            className="flex-shrink-0 w-11 h-11 rounded-xl bg-primary hover:bg-primary-light disabled:bg-surface-lighter disabled:cursor-not-allowed flex items-center justify-center transition-all cursor-pointer"
+            className="flex-shrink-0 w-11 h-11 rounded-2xl bg-gradient-to-br from-primary to-primary-dark hover:from-primary-light hover:to-primary disabled:from-surface-lighter disabled:to-surface-lighter disabled:cursor-not-allowed flex items-center justify-center transition-all duration-200 cursor-pointer btn-press shadow-lg shadow-primary/20 disabled:shadow-none"
+            title="Send message (Enter)"
           >
-            <Send className="w-4 h-4 text-white" />
+            <Send
+              className={`w-4 h-4 text-white transition-transform ${
+                input.trim() ? 'translate-x-0.5 -translate-y-0.5' : ''
+              }`}
+            />
           </button>
         </div>
-      </div>
+        <p className="text-[10px] text-text-muted/30 mt-2 pl-1 hidden sm:block">
+          Press{' '}
+          <kbd className="px-1.5 py-0.5 rounded bg-surface-lighter/20 text-text-muted/40 font-mono text-[9px]">
+            Enter
+          </kbd>{' '}
+          to send &bull;{' '}
+          <kbd className="px-1.5 py-0.5 rounded bg-surface-lighter/20 text-text-muted/40 font-mono text-[9px]">
+            Shift+Enter
+          </kbd>{' '}
+          for new line
+        </p>
+      </footer>
     </div>
   );
 }
 
+/* ── Suggestion bubbles per user ── */
 function getSuggestions(userId) {
   if (userId === 'user_1') {
     return [
       'What is quantum computing?',
       'Explain neural network architectures',
       'How do graph databases work?',
-      'Tell me about cooking recipes',
+      'Tell me about knowledge graphs',
     ];
   }
   return [
     'What causes climate change?',
     'Explain renewable energy sources',
-    'Tell me about quantum physics',
+    'Tell me about energy storage',
     'How can we reduce CO₂ emissions?',
   ];
 }
