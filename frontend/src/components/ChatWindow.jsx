@@ -88,7 +88,7 @@ export default function ChatWindow() {
         className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-8 space-y-8 relative"
       >
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in py-8">
+          <div className="flex flex-col items-center justify-start min-h-full text-center animate-fade-in py-8">
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/10 flex items-center justify-center mb-6 animate-float ring-1 ring-primary/15">
               <Bot className="w-10 h-10 text-primary-light" />
             </div>
