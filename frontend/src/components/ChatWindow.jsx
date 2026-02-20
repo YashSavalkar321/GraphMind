@@ -204,17 +204,6 @@ export default function ChatWindow() {
         <div ref={messagesEndRef} className="h-4" />
       </div>
 
-      {showScrollBtn && (
-        <div className="absolute bottom-28 right-8 z-10">
-          <button
-            onClick={scrollToBottom}
-            className="w-10 h-10 rounded-full bg-surface border border-surface-lighter shadow-xl flex items-center justify-center hover:bg-surface-light transition-all cursor-pointer"
-          >
-            <ArrowDown className="w-5 h-5 text-text-primary" />
-          </button>
-        </div>
-      )}
-
       {/* ── Input Area ── */}
       <footer className="px-4 sm:px-6 pt-4 pb-6 bg-surface border-t border-surface-lighter/30 flex-shrink-0 z-10">
         <div className="max-w-4xl mx-auto relative">
