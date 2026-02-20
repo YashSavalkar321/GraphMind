@@ -8,6 +8,87 @@ import {
 } from '../data/mockData';
 
 const useAppStore = create((set, get) => ({
+  // ──────────────── Sidebar state ────────────────
+  sidebarOpen: false,
+  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
+  // ──────────────── Chat history state ────────────────
+  chatHistory: [],
+  activeChatId: null,
+
+  newChat: () => {
+    const { messages, activeChatId, chatHistory } = get();
+    let updatedHistory = chatHistory;
+    // Save current chat if it has messages
+    if (activeChatId && messages.length > 0) {
+      updatedHistory = chatHistory.map((c) =>
+        c.id === activeChatId ? { ...c, messages, updatedAt: new Date().toISOString() } : c,
+      );
+    }
+    const newId = `chat_${Date.now()}`;
+    const newSession = {
+      id: newId,
+      title: 'New Chat',
+      messages: [],
+      pinned: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    set({
+      chatHistory: [newSession, ...updatedHistory],
+      activeChatId: newId,
+      messages: [],
+      isTyping: false,
+    });
+  },
+
+  switchChat: (chatId) => {
+    const { activeChatId, messages, chatHistory } = get();
+    if (chatId === activeChatId) return;
+    // Save current chat
+    const saved = chatHistory.map((c) =>
+      c.id === activeChatId ? { ...c, messages, updatedAt: new Date().toISOString() } : c,
+    );
+    const target = saved.find((c) => c.id === chatId);
+    if (!target) return;
+    set({
+      chatHistory: saved,
+      activeChatId: chatId,
+      messages: target.messages,
+      isTyping: false,
+    });
+  },
+
+  pinChat: (chatId) =>
+    set((s) => ({
+      chatHistory: s.chatHistory.map((c) =>
+        c.id === chatId ? { ...c, pinned: true } : c,
+      ),
+    })),
+
+  unpinChat: (chatId) =>
+    set((s) => ({
+      chatHistory: s.chatHistory.map((c) =>
+        c.id === chatId ? { ...c, pinned: false } : c,
+      ),
+    })),
+
+  deleteChat: (chatId) => {
+    const { activeChatId, chatHistory } = get();
+    const remaining = chatHistory.filter((c) => c.id !== chatId);
+    if (chatId === activeChatId) {
+      const next = remaining[0];
+      set({
+        chatHistory: remaining,
+        activeChatId: next?.id || null,
+        messages: next?.messages || [],
+      });
+    } else {
+      set({ chatHistory: remaining });
+    }
+  },
+
   // ──────────────── User state ────────────────
   users: USERS,
   currentUserId: USERS[0].id,
@@ -79,7 +160,21 @@ const useAppStore = create((set, get) => ({
   isTyping: false,
 
   sendMessage: async (query) => {
-    const { currentUserId, messages } = get();
+    const { currentUserId, messages, activeChatId, chatHistory } = get();
+
+    // Auto-create a chat session if none exists
+    if (!activeChatId) {
+      const newId = `chat_${Date.now()}`;
+      const newSession = {
+        id: newId,
+        title: query.slice(0, 40) + (query.length > 40 ? '…' : ''),
+        messages: [],
+        pinned: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      set({ chatHistory: [newSession, ...chatHistory], activeChatId: newId });
+    }
 
     const userMessage = {
       id: `msg_${Date.now()}`,
@@ -87,7 +182,23 @@ const useAppStore = create((set, get) => ({
       content: query,
       timestamp: new Date().toISOString(),
     };
-    set({ messages: [...messages, userMessage], isTyping: true });
+    const updatedMessages = [...messages, userMessage];
+    set({ messages: updatedMessages, isTyping: true });
+
+    // Update chat title from first user message
+    const { activeChatId: currentChatId } = get();
+    set((s) => ({
+      chatHistory: s.chatHistory.map((c) => {
+        if (c.id !== currentChatId) return c;
+        const isNew = c.title === 'New Chat';
+        return {
+          ...c,
+          messages: updatedMessages,
+          updatedAt: new Date().toISOString(),
+          ...(isNew ? { title: query.slice(0, 40) + (query.length > 40 ? '…' : '') } : {}),
+        };
+      }),
+    }));
 
     // Simulate network latency
     await new Promise((r) => setTimeout(r, 300 + Math.random() * 500));
@@ -111,10 +222,18 @@ const useAppStore = create((set, get) => ({
       memory_citations: data.memory_citations,
     };
 
-    set((s) => ({
-      messages: [...s.messages, aiMessage],
-      isTyping: false,
-    }));
+    set((s) => {
+      const newMessages = [...s.messages, aiMessage];
+      return {
+        messages: newMessages,
+        isTyping: false,
+        chatHistory: s.chatHistory.map((c) =>
+          c.id === s.activeChatId
+            ? { ...c, messages: newMessages, updatedAt: new Date().toISOString() }
+            : c,
+        ),
+      };
+    });
   },
 
   // ──────────────── Ingest state ────────────────

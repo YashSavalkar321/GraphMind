@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { MessageSquare, Network, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import Navbar from './components/Navbar';
+import ChatSidebar from './components/ChatSidebar';
 import ChatWindow from './components/ChatWindow';
 import GraphCanvas from './components/GraphCanvas';
 import IngestModal from './components/IngestModal';
@@ -11,6 +12,7 @@ import useAppStore from './store/useAppStore';
 function App() {
   const activeView = useAppStore((s) => s.activeView);
   const setActiveView = useAppStore((s) => s.setActiveView);
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
 
   const [chatPct, setChatPct] = useState(40); // Better default split
   const [graphHidden, setGraphHidden] = useState(false);
@@ -51,6 +53,7 @@ function App() {
   return (
     <div className="h-dvh w-screen flex flex-col overflow-hidden bg-bg">
       <Navbar />
+      <ChatSidebar />
 
       {/* Mobile Tabs: Added border-transparent to inactive state to prevent layout shift */}
       <div className="lg:hidden flex border-b border-white/[0.06] bg-surface flex-shrink-0 z-20">
@@ -78,7 +81,12 @@ function App() {
         </button>
       </div>
 
-      <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+      <div
+        ref={containerRef}
+        className={`flex-1 flex flex-col lg:flex-row overflow-hidden relative transition-[margin] duration-250 ease-out ${
+          sidebarOpen ? 'lg:ml-72' : 'lg:ml-0'
+        }`}
+      >
         {/* Chat Panel */}
         <style>{`@media(min-width:1024px){.chat-pane{width:${chatWidth} !important;min-width:320px;}}`}</style>
         <div
