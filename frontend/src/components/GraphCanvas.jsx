@@ -161,7 +161,7 @@ function GraphCanvasInner() {
   return (
     <div className="flex flex-col h-full bg-gradient-subtle">
       {/* ── Mini header / stats bar ── */}
-      <header className="flex items-center justify-between px-5 sm:px-6 py-3.5 border-b border-white/[0.06] bg-surface/80 backdrop-blur-md flex-shrink-0">
+      <header className="flex items-center justify-between px-5 sm:px-6 py-3 border-b border-white/[0.06] bg-surface/80 backdrop-blur-md flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-secondary/30 to-primary/20 flex items-center justify-center ring-1 ring-secondary/20 flex-shrink-0">
             <Network className="w-4 h-4 text-secondary-light" />
