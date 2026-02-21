@@ -22,6 +22,7 @@ const COLOR_MAP = {
   entity:   { bg: '#8b5cf6', border: '#a78bfa', glow: 'rgba(139,92,246,0.35)'  },
   document: { bg: '#0ea5e9', border: '#38bdf8', glow: 'rgba(14,165,233,0.35)'  },
   fact:     { bg: '#10b981', border: '#34d399', glow: 'rgba(16,185,129,0.35)'  },
+  category: { bg: '#f59e0b', border: '#fcd34d', glow: 'rgba(245,158,11,0.45)'  },
 };
 
 /* ── Custom Node ── */
@@ -91,7 +92,43 @@ const nodeTypes = {
   entity: MindmapNode,
   document: MindmapNode,
   fact: MindmapNode,
+  category: CategoryNode,
 };
+
+/* ── Category Hub Node ── */
+function CategoryNode({ id, data, selected }) {
+  const highlightedNodeId = useAppStore((s) => s.highlightedNodeId);
+  const isHighlighted = id === highlightedNodeId;
+  const colors = COLOR_MAP.category;
+  return (
+    <div
+      className={`relative flex items-center justify-center rounded-2xl border-2 shadow-xl transition-all duration-300 ${
+        selected || isHighlighted ? 'scale-110 shadow-2xl ring-2' : 'hover:scale-105'
+      }`}
+      style={{
+        backgroundColor: '#1c1a14',
+        borderColor: colors.border,
+        boxShadow: `0 0 18px ${colors.glow}, 0 4px 12px rgba(0,0,0,0.4)`,
+        minWidth: '110px',
+        padding: '10px 18px',
+      }}
+    >
+      <Handle type="target" position={Position.Top}    className="!bg-amber-400/40" />
+      <Handle type="source" position={Position.Bottom} className="!bg-amber-400/40" />
+      <Handle type="target" position={Position.Left}   className="!bg-amber-400/40" />
+      <Handle type="source" position={Position.Right}  className="!bg-amber-400/40" />
+      <div className="flex flex-col items-center gap-1">
+        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: colors.bg, boxShadow: `0 0 8px ${colors.glow}` }} />
+        <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: colors.border }}>
+          {data.label}
+        </span>
+        {data.description && (
+          <span className="text-[10px] text-text-muted">{data.description}</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /* ── Inner component (has access to useReactFlow) ── */
 function GraphCanvasInner() {

@@ -1,96 +1,10 @@
 // ============================================================
 // GraphMind — Static Mock Data
-// All backend API responses are simulated here.
-// When the real backend is ready, replace these with fetch calls.
+// Used ONLY as offline fallback when the backend is unreachable.
+// Real data is fetched exclusively from the backend/ API.
 // ============================================================
 
-// ---- Users ----
-export const USERS = [
-  {
-    id: 'user_1',
-    name: 'Alice Morgan',
-    avatar: 'AM',
-    color: '#6366f1',
-  },
-  {
-    id: 'user_2',
-    name: 'Bob Chen',
-    avatar: 'BC',
-    color: '#0ea5e9',
-  },
-];
-
-// ---- Ingested Documents per user ----
-export const INGESTED_DOCS = {
-  user_1: [
-    { id: 'doc_1', title: 'Quantum Computing Basics', type: 'pdf', ingestedAt: '2026-02-15T10:30:00Z', chunks: 12 },
-    { id: 'doc_2', title: 'Neural Network Architectures', type: 'text', ingestedAt: '2026-02-16T14:22:00Z', chunks: 8 },
-    { id: 'doc_3', title: 'Graph Database Overview', type: 'pdf', ingestedAt: '2026-02-17T09:15:00Z', chunks: 15 },
-  ],
-  user_2: [
-    { id: 'doc_4', title: 'Climate Change Report 2026', type: 'pdf', ingestedAt: '2026-02-14T11:00:00Z', chunks: 20 },
-    { id: 'doc_5', title: 'Renewable Energy Sources', type: 'text', ingestedAt: '2026-02-15T16:45:00Z', chunks: 10 },
-  ],
-};
-
-// ---- Mindmap / Graph data per user ----
-export const MINDMAP_DATA = {
-  user_1: {
-    nodes: [
-      { id: 'n1', type: 'concept', data: { label: 'Quantum Computing', description: 'Study of computation using quantum-mechanical phenomena', nodeType: 'concept', docSource: 'doc_1' }, position: { x: 400, y: 50 } },
-      { id: 'n2', type: 'entity', data: { label: 'Qubit', description: 'Basic unit of quantum information', nodeType: 'entity', docSource: 'doc_1' }, position: { x: 150, y: 200 } },
-      { id: 'n3', type: 'entity', data: { label: 'Superposition', description: 'A qubit can exist in multiple states simultaneously', nodeType: 'entity', docSource: 'doc_1' }, position: { x: 650, y: 200 } },
-      { id: 'n4', type: 'fact', data: { label: 'Entanglement', description: 'Quantum entanglement links qubits across distance', nodeType: 'fact', docSource: 'doc_1' }, position: { x: 400, y: 350 } },
-      { id: 'n5', type: 'concept', data: { label: 'Neural Networks', description: 'Computing systems inspired by biological neural networks', nodeType: 'concept', docSource: 'doc_2' }, position: { x: 900, y: 50 } },
-      { id: 'n6', type: 'entity', data: { label: 'Transformer', description: 'Attention-based architecture revolutionizing NLP', nodeType: 'entity', docSource: 'doc_2' }, position: { x: 800, y: 250 } },
-      { id: 'n7', type: 'entity', data: { label: 'Backpropagation', description: 'Algorithm for training neural networks', nodeType: 'entity', docSource: 'doc_2' }, position: { x: 1050, y: 250 } },
-      { id: 'n8', type: 'concept', data: { label: 'Graph Databases', description: 'Database using graph structures for semantic queries', nodeType: 'concept', docSource: 'doc_3' }, position: { x: 150, y: 450 } },
-      { id: 'n9', type: 'document', data: { label: 'Neo4j', description: 'Leading native graph database platform', nodeType: 'document', docSource: 'doc_3' }, position: { x: 50, y: 600 } },
-      { id: 'n10', type: 'fact', data: { label: 'Cypher Query Language', description: 'Declarative graph query language for Neo4j', nodeType: 'fact', docSource: 'doc_3' }, position: { x: 300, y: 600 } },
-      { id: 'n11', type: 'entity', data: { label: 'Knowledge Graph', description: 'Graph-based knowledge representation', nodeType: 'entity', docSource: 'doc_3' }, position: { x: 550, y: 500 } },
-      { id: 'n12', type: 'fact', data: { label: 'Quantum Speedup', description: 'Exponential speedup for certain algorithms', nodeType: 'fact', docSource: 'doc_1' }, position: { x: 200, y: 350 } },
-    ],
-    edges: [
-      { id: 'e1-2', source: 'n1', target: 'n2', label: 'uses', animated: true, style: { stroke: '#6366f1' } },
-      { id: 'e1-3', source: 'n1', target: 'n3', label: 'relies on', style: { stroke: '#6366f1' } },
-      { id: 'e1-4', source: 'n1', target: 'n4', label: 'exploits', style: { stroke: '#6366f1' } },
-      { id: 'e2-4', source: 'n2', target: 'n4', label: 'enables', animated: true, style: { stroke: '#8b5cf6' } },
-      { id: 'e1-12', source: 'n1', target: 'n12', label: 'achieves', style: { stroke: '#10b981' } },
-      { id: 'e5-6', source: 'n5', target: 'n6', label: 'includes', style: { stroke: '#0ea5e9' } },
-      { id: 'e5-7', source: 'n5', target: 'n7', label: 'trained by', style: { stroke: '#0ea5e9' } },
-      { id: 'e8-9', source: 'n8', target: 'n9', label: 'example', animated: true, style: { stroke: '#6366f1' } },
-      { id: 'e8-10', source: 'n8', target: 'n10', label: 'queried with', style: { stroke: '#6366f1' } },
-      { id: 'e8-11', source: 'n8', target: 'n11', label: 'implements', style: { stroke: '#8b5cf6' } },
-      { id: 'e11-5', source: 'n11', target: 'n5', label: 'enhances', animated: true, style: { stroke: '#10b981' } },
-      { id: 'e3-12', source: 'n3', target: 'n12', label: 'contributes to', style: { stroke: '#8b5cf6' } },
-    ],
-  },
-  user_2: {
-    nodes: [
-      { id: 'n1', type: 'concept', data: { label: 'Climate Change', description: 'Long-term shifts in global temperatures and weather patterns', nodeType: 'concept', docSource: 'doc_4' }, position: { x: 400, y: 50 } },
-      { id: 'n2', type: 'entity', data: { label: 'CO₂ Emissions', description: 'Primary greenhouse gas from human activities', nodeType: 'entity', docSource: 'doc_4' }, position: { x: 150, y: 200 } },
-      { id: 'n3', type: 'fact', data: { label: '1.5°C Target', description: 'Paris Agreement goal to limit warming', nodeType: 'fact', docSource: 'doc_4' }, position: { x: 650, y: 200 } },
-      { id: 'n4', type: 'entity', data: { label: 'Sea Level Rise', description: 'Global sea levels rising ~3.6mm per year', nodeType: 'entity', docSource: 'doc_4' }, position: { x: 400, y: 350 } },
-      { id: 'n5', type: 'concept', data: { label: 'Renewable Energy', description: 'Energy from naturally replenishing sources', nodeType: 'concept', docSource: 'doc_5' }, position: { x: 850, y: 50 } },
-      { id: 'n6', type: 'document', data: { label: 'Solar Power', description: 'Energy from sunlight using photovoltaic cells', nodeType: 'document', docSource: 'doc_5' }, position: { x: 750, y: 250 } },
-      { id: 'n7', type: 'document', data: { label: 'Wind Energy', description: 'Kinetic energy from wind converted to electricity', nodeType: 'document', docSource: 'doc_5' }, position: { x: 1000, y: 250 } },
-      { id: 'n8', type: 'fact', data: { label: 'Carbon Neutral by 2050', description: 'Global goal to achieve net-zero emissions', nodeType: 'fact', docSource: 'doc_4' }, position: { x: 200, y: 450 } },
-      { id: 'n9', type: 'entity', data: { label: 'Energy Storage', description: 'Battery systems for storing renewable energy', nodeType: 'entity', docSource: 'doc_5' }, position: { x: 900, y: 400 } },
-    ],
-    edges: [
-      { id: 'e1-2', source: 'n1', target: 'n2', label: 'caused by', animated: true, style: { stroke: '#ef4444' } },
-      { id: 'e1-3', source: 'n1', target: 'n3', label: 'addressed by', style: { stroke: '#10b981' } },
-      { id: 'e1-4', source: 'n1', target: 'n4', label: 'causes', style: { stroke: '#ef4444' } },
-      { id: 'e5-6', source: 'n5', target: 'n6', label: 'includes', animated: true, style: { stroke: '#0ea5e9' } },
-      { id: 'e5-7', source: 'n5', target: 'n7', label: 'includes', style: { stroke: '#0ea5e9' } },
-      { id: 'e5-1', source: 'n5', target: 'n1', label: 'mitigates', animated: true, style: { stroke: '#10b981' } },
-      { id: 'e2-8', source: 'n2', target: 'n8', label: 'targeted by', style: { stroke: '#f59e0b' } },
-      { id: 'e5-9', source: 'n5', target: 'n9', label: 'requires', style: { stroke: '#0ea5e9' } },
-    ],
-  },
-};
-
-// ---- Chat responses (simulated AI answers) ----
+// ---- Chat responses (offline fallback) ----
 const CHAT_RESPONSES = {
   user_1: [
     {

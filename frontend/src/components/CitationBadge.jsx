@@ -1,15 +1,41 @@
 import { Bookmark, ChevronRight } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 
-export default function CitationBadge({ citations }) {
+export default function CitationBadge({ citations, broadQuery = false }) {
   const highlightNode = useAppStore((s) => s.highlightNode);
   const setActiveView = useAppStore((s) => s.setActiveView);
 
+  // History-only citations come back with title === 'Conversation History'
+  const isHistoryAnswer =
+    !citations || citations.length === 0
+      ? false
+      : citations.every((c) => c.title === 'Conversation History');
+
   if (!citations || citations.length === 0) {
+    if (broadQuery) {
+      // The model answered from LLM conversation context — not a failure
+      return (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/10 border border-secondary/20 w-full">
+          <span className="text-sm text-secondary-light/90 font-medium italic">
+            Answered from conversation context.
+          </span>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-warning/10 border border-warning/20 w-full">
         <span className="text-sm text-warning/90 font-medium italic">
           No matching memories found — answer not in knowledge base.
+        </span>
+      </div>
+    );
+  }
+
+  if (isHistoryAnswer) {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/10 border border-secondary/20 w-full">
+        <span className="text-sm text-secondary-light/90 font-medium italic">
+          Answered from conversation history ({citations.length} exchange{citations.length !== 1 ? 's' : ''} referenced).
         </span>
       </div>
     );
