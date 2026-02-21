@@ -10,11 +10,12 @@ No pre-built memory libraries are used — all prompting is manual.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
-from typing import Optional
+from typing import Generator, Optional
 
 from dotenv import load_dotenv
 
@@ -154,7 +155,7 @@ Other rules:
 
 async def extract_knowledge(text: str) -> dict:
     """Use the LLM to extract entities, relationships, and facts."""
-    raw = _chat(EXTRACTION_SYSTEM_PROMPT, text)
+    raw = await asyncio.to_thread(_chat, EXTRACTION_SYSTEM_PROMPT, text)
     parsed = _parse_json_from_llm(raw)
     parsed.setdefault("entities", [])
     parsed.setdefault("relationships", [])
@@ -185,7 +186,61 @@ Answer the user's question using ONLY the provided MEMORY CONTEXT.
 async def generate_answer(query: str, context: str) -> str:
     """Generate a memory-augmented answer."""
     user_prompt = f"MEMORY CONTEXT:\n{context}\n\nUSER QUESTION:\n{query}"
-    return _chat(GENERATION_SYSTEM_PROMPT, user_prompt)
+    return await asyncio.to_thread(_chat, GENERATION_SYSTEM_PROMPT, user_prompt)
+
+
+def _chat_stream(system_prompt: str, user_prompt: str, model: Optional[str] = None) -> Generator[str, None, None]:
+    """Streaming version of _chat. Yields text chunks. Tries Groq first, then Gemini."""
+    model = model or os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+
+    # ── Try Groq streaming ──
+    groq = _get_groq_client()
+    if groq is not None:
+        try:
+            stream = groq.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+                max_tokens=2048,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+            return
+        except Exception as exc:
+            logger.warning("Groq streaming failed, falling back to Gemini: %s", exc)
+
+    # ── Try Gemini streaming ──
+    gemini = _get_gemini_client()
+    if gemini is not None:
+        try:
+            gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+            response = gemini.models.generate_content_stream(
+                model=gemini_model,
+                contents=f"{system_prompt}\n\n---\n\n{user_prompt}",
+            )
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
+            return
+        except Exception as exc:
+            logger.error("Gemini streaming also failed: %s", exc)
+
+    raise RuntimeError(
+        "No LLM provider available. "
+        "Set GROQ_API_KEY or GEMINI_API_KEY in your .env file."
+)
+
+
+def generate_answer_stream(query: str, context: str) -> Generator[str, None, None]:
+    """Streaming version of generate_answer. Yields text chunks."""
+    user_prompt = f"MEMORY CONTEXT:\n{context}\n\nUSER QUESTION:\n{query}"
+    yield from _chat_stream(GENERATION_SYSTEM_PROMPT, user_prompt)
 
 
 # ── Keyword Extraction ─────────────────────────────────────────
@@ -199,7 +254,7 @@ No markdown, no explanation — just the JSON array.
 
 async def extract_keywords(query: str) -> list[str]:
     """Extract search keywords from a user query."""
-    raw = _chat(KEYWORD_SYSTEM_PROMPT, query)
+    raw = await asyncio.to_thread(_chat, KEYWORD_SYSTEM_PROMPT, query)
     cleaned = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`")
     try:
         keywords = json.loads(cleaned)
@@ -264,7 +319,7 @@ async def generate_learning_roadmap(target_skill: str, context: str) -> dict:
         f"TARGET SKILL: {target_skill}\n\n"
         "Create a personalized learning roadmap."
     )
-    raw = _chat(ROADMAP_SYSTEM_PROMPT, user_prompt)
+    raw = await asyncio.to_thread(_chat, ROADMAP_SYSTEM_PROMPT, user_prompt)
     parsed = _parse_json_from_llm(raw)
     parsed.setdefault("steps", [])
     parsed.setdefault("estimated_time", "")

@@ -10,6 +10,7 @@ Member 2 (Backend Lead) deliverables:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import math
@@ -24,7 +25,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth import JWT_ALGORITHM, JWT_SECRET, get_current_user
 from backend.database import get_db
-from backend.llm_service import generate_answer, generate_learning_roadmap
+from fastapi.responses import StreamingResponse
+from backend.llm_service import generate_answer, generate_answer_stream, generate_learning_roadmap
 from backend.memory_ops import (
     get_user_graph,
     get_user_profile,
@@ -34,6 +36,8 @@ from backend.memory_ops import (
 from backend.models import (
     ChatRequest,
     ChatResponse,
+    ChatMessagePayload,
+    ChatSessionResponse,
     IngestRequest,
     IngestResponse,
     LearningRoadmapResponse,
@@ -48,6 +52,7 @@ from backend.models import (
     ReactFlowPosition,
     RoadmapRequest,
     RoadmapStep,
+    SaveChatRequest,
     SignupRequest,
     SignupResponse,
     UserProfileResponse,
@@ -236,6 +241,125 @@ async def login(request: LoginRequest):
     )
 
 
+# ── Chat Persistence: CRUD ────────────────────────────────────
+
+@app.get(
+    "/chats",
+    response_model=List[ChatSessionResponse],
+    tags=["Chat History"],
+    summary="List all chat sessions",
+    description="Returns all persisted chat sessions for the authenticated user, ordered by updatedAt descending.",
+    responses={401: {"description": "Not authenticated"}},
+)
+async def list_chats(
+    user_id: str = Depends(get_current_user),
+):
+    """Fetch all chat sessions for the current user from Neo4j."""
+    import json as _json
+    try:
+        db = get_db()
+        records = db.execute_query(
+            "MATCH (cs:ChatSession {user_id: $uid}) "
+            "RETURN cs.chat_id AS chat_id, cs.title AS title, "
+            "       cs.pinned AS pinned, cs.messages AS messages, "
+            "       cs.createdAt AS createdAt, cs.updatedAt AS updatedAt "
+            "ORDER BY cs.pinned DESC, cs.updatedAt DESC",
+            {"uid": user_id},
+        )
+        sessions = []
+        for r in records:
+            try:
+                msgs = _json.loads(r.get("messages") or "[]")
+            except Exception:
+                msgs = []
+            sessions.append(ChatSessionResponse(
+                chat_id=r["chat_id"],
+                title=r.get("title", "New Chat"),
+                pinned=bool(r.get("pinned", False)),
+                messages=msgs,
+                createdAt=r.get("createdAt", ""),
+                updatedAt=r.get("updatedAt", ""),
+            ))
+        return sessions
+    except Exception as exc:
+        logger.exception("List chats failed")
+        raise HTTPException(status_code=500, detail=f"List chats error: {exc}")
+
+
+@app.post(
+    "/chats",
+    response_model=ChatSessionResponse,
+    tags=["Chat History"],
+    summary="Save or update a chat session",
+    description="Upserts a chat session (by chat_id) into Neo4j.",
+    responses={401: {"description": "Not authenticated"}},
+)
+async def save_chat(
+    request: SaveChatRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Upsert a chat session into Neo4j."""
+    import json as _json
+    try:
+        db = get_db()
+        messages_json = _json.dumps(
+            [m.model_dump() for m in request.messages],
+            ensure_ascii=False,
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        db.execute_write(
+            "MERGE (cs:ChatSession {chat_id: $cid}) "
+            "ON CREATE SET cs.user_id = $uid, cs.createdAt = $createdAt "
+            "SET cs.title = $title, cs.pinned = $pinned, "
+            "    cs.messages = $messages, cs.updatedAt = $now",
+            {
+                "cid": request.chat_id,
+                "uid": user_id,
+                "title": request.title,
+                "pinned": request.pinned,
+                "messages": messages_json,
+                "createdAt": request.createdAt or now,
+                "now": now,
+            },
+        )
+        return ChatSessionResponse(
+            chat_id=request.chat_id,
+            title=request.title,
+            pinned=request.pinned,
+            messages=[m.model_dump() for m in request.messages],
+            createdAt=request.createdAt or now,
+            updatedAt=now,
+        )
+    except Exception as exc:
+        logger.exception("Save chat failed")
+        raise HTTPException(status_code=500, detail=f"Save chat error: {exc}")
+
+
+@app.delete(
+    "/chats/{chat_id}",
+    tags=["Chat History"],
+    summary="Delete a chat session",
+    description="Permanently removes a chat session from Neo4j.",
+    responses={401: {"description": "Not authenticated"}},
+)
+async def delete_chat(
+    chat_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Delete a chat session from Neo4j."""
+    try:
+        db = get_db()
+        db.execute_write(
+            "MATCH (cs:ChatSession {chat_id: $cid, user_id: $uid}) "
+            "DETACH DELETE cs",
+            {"cid": chat_id, "uid": user_id},
+        )
+        return {"status": "ok", "chat_id": chat_id}
+    except Exception as exc:
+        logger.exception("Delete chat failed")
+        raise HTTPException(status_code=500, detail=f"Delete chat error: {exc}")
+
+
 # ── Chat (authenticated) ──────────────────────────────────────
 
 @app.post(
@@ -267,12 +391,14 @@ async def chat(
         # 2. Generate answer
         answer = await generate_answer(request.query, retrieval["context"])
 
-        # 3. Auto-ingest (LLM skips pure questions)
-        try:
-            await ingest_to_graph(effective_user_id, request.query)
-            logger.info("Auto-ingested for user=%s", effective_user_id)
-        except Exception as ingest_exc:
-            logger.warning("Auto-ingest failed (non-fatal): %s", ingest_exc)
+        # 3. Auto-ingest in background (non-blocking)
+        async def _bg_ingest():
+            try:
+                await ingest_to_graph(effective_user_id, request.query)
+                logger.info("Auto-ingested for user=%s", effective_user_id)
+            except Exception as ingest_exc:
+                logger.warning("Auto-ingest failed (non-fatal): %s", ingest_exc)
+        asyncio.create_task(_bg_ingest())
 
         # 4. Build memory citations from retrieved entities + history
         entity_snippets = retrieval.get("entity_snippets", {})
@@ -316,6 +442,72 @@ async def chat(
     except Exception as exc:
         logger.exception("Chat failed")
         raise HTTPException(status_code=500, detail=f"Chat error: {exc}")
+
+
+# ── Chat Stream (SSE) ─────────────────────────────────────────
+
+@app.post(
+    "/chat/stream",
+    tags=["Memory"],
+    summary="Chat with Streaming (SSE)",
+    description="Same as /chat but streams the answer token-by-token via Server-Sent Events.",
+    responses={
+        200: {"description": "SSE stream of token chunks + final metadata"},
+        401: {"description": "Not authenticated"},
+    },
+)
+async def chat_stream(
+    request: ChatRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Chat with streaming — retrieve context, then stream the LLM answer."""
+    effective_user_id = request.user_id or user_id
+
+    # 1. Retrieve context (fast, non-streaming)
+    retrieval = await retrieve_from_graph(effective_user_id, request.query)
+
+    # 2. Build metadata (citations, perf) upfront
+    entity_snippets = retrieval.get("entity_snippets", {})
+    history_citations = retrieval.get("history_citations", [])
+    broad_query = retrieval.get("broad_query", False)
+
+    memory_citations = [
+        {"node_id": e, "title": e, "snippet": entity_snippets.get(e, "")}
+        for e in retrieval["entities_found"][:6]
+    ]
+    if not memory_citations and history_citations:
+        memory_citations = [
+            {"node_id": h["node_id"], "title": h["title"], "snippet": h["snippet"]}
+            for h in history_citations[:4]
+        ]
+
+    # 3. Auto-ingest in background
+    async def _bg_ingest():
+        try:
+            await ingest_to_graph(effective_user_id, request.query)
+        except Exception:
+            pass
+    asyncio.create_task(_bg_ingest())
+
+    # 4. Stream the LLM response as SSE
+    import json as _json
+
+    def _sse_generator():
+        try:
+            for chunk in generate_answer_stream(request.query, retrieval["context"]):
+                # SSE data line: just the text chunk
+                yield f"data: {_json.dumps({'token': chunk})}\n\n"
+        except Exception as exc:
+            yield f"data: {_json.dumps({'error': str(exc)})}\n\n"
+
+        # Final event with metadata
+        yield f"data: {_json.dumps({'done': True, 'retrieval_time_ms': retrieval['retrieval_time_ms'], 'memory_citations': memory_citations, 'broad_query': broad_query, 'entities_found': retrieval['entities_found'], 'total_facts_scanned': retrieval.get('total_facts_scanned', 0), 'facts_selected': retrieval.get('facts_selected', 0)})}\n\n"
+
+    return StreamingResponse(
+        _sse_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── Ingest (authenticated) ────────────────────────────────────

@@ -33,7 +33,7 @@ logger = logging.getLogger("graphmind.memory")
 
 _MAX_CONTEXT_FACTS = 30         # Top-N most relevant facts in context
 _DECAY_HALF_LIFE_DAYS = 30.0    # Memory half-life in days
-_CACHE_TTL_SECONDS = 10         # Graph cache TTL
+_CACHE_TTL_SECONDS = 120        # Graph cache TTL (invalidated on ingest)
 _STOP_WORDS = frozenset({
     "i", "me", "my", "mine", "myself", "we", "our", "ours", "ourselves",
     "you", "your", "yours", "yourself", "yourselves", "he", "him", "his",
@@ -272,8 +272,9 @@ async def ingest_to_graph(user_id: str, text: str) -> Dict[str, Any]:
 
     if entity_params:
         db.execute_write(
+            "MATCH (u:User {user_id: $uid}) "
+            "WITH u "
             "UNWIND $entities AS ent "
-            "MERGE (u:User {user_id: $uid}) "
             "MERGE (cat:Category {name: ent.category, user_id: $uid}) "
             "  ON CREATE SET cat.created_at = ent.now "
             "MERGE (u)-[:HAS_CATEGORY]->(cat) "
@@ -524,18 +525,24 @@ async def retrieve_from_graph(user_id: str, query: str) -> Dict[str, Any]:
                     "snippet": hist_text[:100],
                 })
 
-    # ── 6. Asynchronous decay update (non-blocking) ─────────────
+    # ── 6. Decay update (fire-and-forget in background thread) ──
     if entities_found:
+        import asyncio
+        def _decay_update():
+            try:
+                db.execute_write(
+                    "UNWIND $names AS ename "
+                    "MATCH (e:Entity {name: ename, user_id: $uid}) "
+                    "SET e.last_accessed = $now "
+                    "WITH e "
+                    "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
+                    "SET f.last_accessed = $now",
+                    {"uid": user_id, "names": entities_found, "now": now},
+                )
+            except Exception:
+                pass
         try:
-            db.execute_write(
-                "UNWIND $names AS ename "
-                "MATCH (e:Entity {name: ename, user_id: $uid}) "
-                "SET e.last_accessed = $now "
-                "WITH e "
-                "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
-                "SET f.last_accessed = $now",
-                {"uid": user_id, "names": entities_found, "now": now},
-            )
+            asyncio.get_event_loop().run_in_executor(None, _decay_update)
         except Exception:
             pass
 

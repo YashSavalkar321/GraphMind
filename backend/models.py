@@ -260,3 +260,37 @@ class ReactFlowMindmapResponse(BaseModel):
     """React Flow graph payload returned by GET /memory/mindmap."""
     nodes: List[ReactFlowNode] = Field(default_factory=list)
     edges: List[ReactFlowEdge] = Field(default_factory=list)
+
+
+# ── Chat Session Persistence Models ─────────────────────────────
+
+
+class ChatMessagePayload(BaseModel):
+    """A single chat message in a persisted session."""
+    id: str
+    role: str
+    content: str
+    timestamp: str
+    retrieval_time_ms: Optional[float] = None
+    memory_citations: Optional[List[dict]] = None
+    broad_query: Optional[bool] = None
+
+
+class SaveChatRequest(BaseModel):
+    """Payload to save/update a chat session."""
+    chat_id: str = Field(..., description="Unique chat session ID.")
+    title: str = Field(default="New Chat", description="Chat title.")
+    pinned: bool = Field(default=False)
+    messages: List[ChatMessagePayload] = Field(default_factory=list)
+    createdAt: str = Field(default="", description="ISO timestamp.")
+    updatedAt: str = Field(default="", description="ISO timestamp.")
+
+
+class ChatSessionResponse(BaseModel):
+    """A single chat session returned by GET /chats."""
+    chat_id: str
+    title: str
+    pinned: bool = False
+    messages: List[dict] = Field(default_factory=list)
+    createdAt: str = ""
+    updatedAt: str = ""

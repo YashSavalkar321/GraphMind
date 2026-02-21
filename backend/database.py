@@ -143,9 +143,24 @@ class Neo4jConnection:
                 "FOR (i:Interaction) ON (i.timestamp)",
             ),
             (
+                "index_interaction_user_ts",
+                "CREATE INDEX index_interaction_user_ts IF NOT EXISTS "
+                "FOR (i:Interaction) ON (i.user_id, i.timestamp)",
+            ),
+            (
                 "index_category_user",
                 "CREATE INDEX index_category_user IF NOT EXISTS "
                 "FOR (c:Category) ON (c.user_id, c.name)",
+            ),
+            (
+                "index_chatsession_user",
+                "CREATE INDEX index_chatsession_user IF NOT EXISTS "
+                "FOR (cs:ChatSession) ON (cs.user_id)",
+            ),
+            (
+                "constraint_chatsession_id",
+                "CREATE CONSTRAINT constraint_chatsession_id IF NOT EXISTS "
+                "FOR (cs:ChatSession) REQUIRE cs.chat_id IS UNIQUE",
             ),
         ]
 

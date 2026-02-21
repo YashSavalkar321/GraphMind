@@ -156,11 +156,14 @@ export default function ChatWindow() {
                     }`}
                   >
                     {msg.role === 'assistant' ? renderContent(msg.content) : msg.content}
+                    {msg.role === 'assistant' && msg.streaming && (
+                      <span className="inline-block w-[2px] h-[1em] bg-primary-light ml-0.5 animate-pulse align-text-bottom" />
+                    )}
                   </p>
                 </div>
 
                 {/* Citations & Metrics isolated in a footer section */}
-                {msg.role === 'assistant' && (
+                {msg.role === 'assistant' && !msg.streaming && msg.content && (
                   <div className="bg-white/[0.03] px-5 py-3.5 border-t border-white/[0.06] rounded-b-2xl flex flex-col gap-3 items-start">
                     <PerformanceTimer timeMs={msg.retrieval_time_ms} />
                     <CitationBadge citations={msg.memory_citations} broadQuery={msg.broad_query} />

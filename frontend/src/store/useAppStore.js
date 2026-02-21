@@ -79,6 +79,7 @@ const useAppStore = create((set, get) => ({
         authLoading: false,
       });
       get().fetchMindmap();
+      get().fetchChats();
     } catch (err) {
       set({ authLoading: false, authError: err.message });
     }
@@ -113,6 +114,7 @@ const useAppStore = create((set, get) => ({
         authLoading: false,
       });
       get().fetchMindmap();
+      get().fetchChats();
     } catch (err) {
       set({ authLoading: false, authError: err.message });
     }
@@ -140,6 +142,58 @@ const useAppStore = create((set, get) => ({
   // ──────────────── Chat history state ────────────────
   chatHistory: [],
   activeChatId: null,
+
+  /**
+   * Fetch all chat sessions from backend (called after login/signup).
+   */
+  fetchChats: async () => {
+    try {
+      const res = await fetch(`${API}/chats`, {
+        headers: { ...authHeaders() },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const sessions = await res.json();
+      const mapped = sessions.map((s) => ({
+        id: s.chat_id,
+        title: s.title,
+        messages: s.messages || [],
+        pinned: s.pinned || false,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+      }));
+      // If there are persisted chats, load the most recent one
+      if (mapped.length > 0) {
+        set({
+          chatHistory: mapped,
+          activeChatId: mapped[0].id,
+          messages: mapped[0].messages || [],
+        });
+      } else {
+        set({ chatHistory: [], activeChatId: null, messages: [] });
+      }
+    } catch (err) {
+      console.warn('fetchChats: API unavailable', err.message);
+    }
+  },
+
+  /**
+   * Persist a chat session to backend (fire-and-forget).
+   */
+  _saveChat: (chatSession) => {
+    if (!chatSession || !chatSession.id) return;
+    fetch(`${API}/chats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({
+        chat_id: chatSession.id,
+        title: chatSession.title || 'New Chat',
+        pinned: chatSession.pinned || false,
+        messages: chatSession.messages || [],
+        createdAt: chatSession.createdAt || new Date().toISOString(),
+        updatedAt: chatSession.updatedAt || new Date().toISOString(),
+      }),
+    }).catch((err) => console.warn('_saveChat failed:', err.message));
+  },
 
   newChat: () => {
     const { messages, activeChatId, chatHistory } = get();
@@ -184,19 +238,25 @@ const useAppStore = create((set, get) => ({
     });
   },
 
-  pinChat: (chatId) =>
+  pinChat: (chatId) => {
     set((s) => ({
       chatHistory: s.chatHistory.map((c) =>
         c.id === chatId ? { ...c, pinned: true } : c,
       ),
-    })),
+    }));
+    const chat = get().chatHistory.find((c) => c.id === chatId);
+    if (chat) get()._saveChat(chat);
+  },
 
-  unpinChat: (chatId) =>
+  unpinChat: (chatId) => {
     set((s) => ({
       chatHistory: s.chatHistory.map((c) =>
         c.id === chatId ? { ...c, pinned: false } : c,
       ),
-    })),
+    }));
+    const chat = get().chatHistory.find((c) => c.id === chatId);
+    if (chat) get()._saveChat(chat);
+  },
 
   deleteChat: (chatId) => {
     const { activeChatId, chatHistory } = get();
@@ -211,6 +271,11 @@ const useAppStore = create((set, get) => ({
     } else {
       set({ chatHistory: remaining });
     }
+    // Delete from backend
+    fetch(`${API}/chats/${chatId}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    }).catch((err) => console.warn('deleteChat backend failed:', err.message));
   },
 
   // ──────────────── User state ────────────────
@@ -336,47 +401,138 @@ const useAppStore = create((set, get) => ({
       }),
     }));
 
-    // ── Call backend (fall back to mock if offline) ──
-    let data;
+    // ── Call backend with SSE streaming (fall back to non-stream, then mock) ──
+    const aiMsgId = `msg_${Date.now() + 1}`;
     try {
-      const res = await fetch(`${API}/chat`, {
+      const res = await fetch(`${API}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ user_id: currentUserId, query }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      data = await res.json();
-    } catch (err) {
-      console.warn('chat API unavailable, using mock:', err.message);
-      await new Promise((r) => setTimeout(r, 300 + Math.random() * 500));
-      data = simulateChatResponse(currentUserId, query);
-    }
 
-    const aiMessage = {
-      id: `msg_${Date.now() + 1}`,
-      role: 'assistant',
-      content: data.response,
-      timestamp: new Date().toISOString(),
-      retrieval_time_ms: data.retrieval_time_ms,
-      memory_citations: data.memory_citations,
-      broad_query: data.broad_query ?? false,
-    };
+      // Add empty AI message bubble immediately
+      const aiMessage = {
+        id: aiMsgId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date().toISOString(),
+        retrieval_time_ms: null,
+        memory_citations: [],
+        broad_query: false,
+        streaming: true,
+      };
+      set((s) => ({ messages: [...s.messages, aiMessage], isTyping: false }));
 
-    set((s) => {
-      const newMessages = [...s.messages, aiMessage];
-      return {
-        messages: newMessages,
-        isTyping: false,
+      // Read SSE stream
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+
+            if (payload.token) {
+              // Append token to the AI message
+              set((s) => ({
+                messages: s.messages.map((m) =>
+                  m.id === aiMsgId ? { ...m, content: m.content + payload.token } : m,
+                ),
+              }));
+            } else if (payload.done) {
+              // Final metadata event — attach citations & perf
+              set((s) => ({
+                messages: s.messages.map((m) =>
+                  m.id === aiMsgId
+                    ? {
+                        ...m,
+                        streaming: false,
+                        retrieval_time_ms: payload.retrieval_time_ms,
+                        memory_citations: payload.memory_citations,
+                        broad_query: payload.broad_query ?? false,
+                      }
+                    : m,
+                ),
+              }));
+            } else if (payload.error) {
+              set((s) => ({
+                messages: s.messages.map((m) =>
+                  m.id === aiMsgId
+                    ? { ...m, content: m.content || 'Sorry, an error occurred.', streaming: false }
+                    : m,
+                ),
+              }));
+            }
+          } catch {
+            // skip malformed JSON lines
+          }
+        }
+      }
+
+      // Sync final state to chat history & persist to backend
+      set((s) => ({
         chatHistory: s.chatHistory.map((c) =>
           c.id === s.activeChatId
-            ? { ...c, messages: newMessages, updatedAt: new Date().toISOString() }
+            ? { ...c, messages: s.messages, updatedAt: new Date().toISOString() }
             : c,
         ),
-      };
-    });
+      }));
+      const activeChat = get().chatHistory.find((c) => c.id === get().activeChatId);
+      if (activeChat) get()._saveChat(activeChat);
+    } catch (err) {
+      console.warn('stream API unavailable, falling back:', err.message);
 
-    // Refresh mindmap — chat may create new graph nodes/edges
-    get().fetchMindmap();
+      // Fallback: try non-streaming /chat, then mock
+      let data;
+      try {
+        const res2 = await fetch(`${API}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ user_id: currentUserId, query }),
+        });
+        if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
+        data = await res2.json();
+      } catch {
+        await new Promise((r) => setTimeout(r, 300 + Math.random() * 500));
+        data = simulateChatResponse(currentUserId, query);
+      }
+
+      const aiMessage = {
+        id: aiMsgId,
+        role: 'assistant',
+        content: data.response,
+        timestamp: new Date().toISOString(),
+        retrieval_time_ms: data.retrieval_time_ms,
+        memory_citations: data.memory_citations,
+        broad_query: data.broad_query ?? false,
+      };
+      set((s) => {
+        const newMessages = [...s.messages.filter((m) => m.id !== aiMsgId), aiMessage];
+        return {
+          messages: newMessages,
+          isTyping: false,
+          chatHistory: s.chatHistory.map((c) =>
+            c.id === s.activeChatId
+              ? { ...c, messages: newMessages, updatedAt: new Date().toISOString() }
+              : c,
+          ),
+        };
+      });
+      // Persist fallback chat to backend too
+      const activeChat = get().chatHistory.find((c) => c.id === get().activeChatId);
+      if (activeChat) get()._saveChat(activeChat);
+    }
   },
 
   // ──────────────── Ingest state ────────────────
@@ -428,6 +584,63 @@ const useAppStore = create((set, get) => ({
     return result;
   },
 
+  /**
+   * Upload a binary file (PDF, TXT, MD) to the /upload endpoint.
+   * The backend extracts text (PyPDF2 for PDFs) and ingests into the graph.
+   */
+  uploadFile: async (file) => {
+    const { currentUserId } = get();
+    set({ isIngesting: true });
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`${API}/upload`, {
+        method: 'POST',
+        headers: { ...authHeaders() },
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const result = await res.json();
+
+      const title = file.name.replace(/\.[^.]+$/, '');
+      const doc = {
+        id: `doc_${Date.now()}`,
+        title,
+        type: 'file',
+        chunks: result.chunks_processed || 1,
+        nodesCreated: result.entities_created || 0,
+        edgesCreated: result.facts_created || 0,
+        ingestedAt: new Date().toISOString(),
+      };
+
+      set((s) => {
+        const docs = { ...s.ingestedDocs };
+        if (!docs[currentUserId]) docs[currentUserId] = [];
+        docs[currentUserId] = [doc, ...docs[currentUserId]];
+        return {
+          ingestedDocs: docs,
+          isIngesting: false,
+          isIngestModalOpen: false,
+        };
+      });
+
+      get().showToast(
+        `"${title}" uploaded — ${doc.chunks} chunks, ${doc.nodesCreated} nodes`,
+      );
+      get().fetchMindmap();
+
+      return doc;
+    } catch (err) {
+      set({ isIngesting: false });
+      throw err;
+    }
+  },
+
   // ──────────────── UI state ────────────────
   /** Mobile view tab: 'chat' | 'graph' */
   activeView: 'chat',
@@ -441,9 +654,12 @@ const useAppStore = create((set, get) => ({
   },
 }));
 
-// Auto-refresh graph from backend when app loads with persisted session
+// Auto-refresh graph and chat history from backend when app loads with persisted session
 if (storedAuth) {
-  setTimeout(() => useAppStore.getState().fetchMindmap(), 150);
+  setTimeout(() => {
+    useAppStore.getState().fetchMindmap();
+    useAppStore.getState().fetchChats();
+  }, 150);
 }
 
 export default useAppStore;

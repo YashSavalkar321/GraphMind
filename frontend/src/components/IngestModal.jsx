@@ -9,18 +9,45 @@ export default function IngestModal() {
   const isIngesting = useAppStore((s) => s.isIngesting);
   const currentUser = useAppStore((s) => s.getCurrentUser());
   
+  const uploadFile = useAppStore((s) => s.uploadFile);
+
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [sourceType, setSourceType] = useState('text');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [pendingFile, setPendingFile] = useState(null);
   const fileInputRef = useRef(null);
 
   if (!isIngestModalOpen) return null;
 
   /* ── Submit ── */
   const handleIngest = async () => {
+    // PDF / binary file path — upload via /upload
+    if (pendingFile) {
+      if (!title.trim()) {
+        setError('A document title is required.');
+        return;
+      }
+      setError('');
+      try {
+        const res = await uploadFile(pendingFile);
+        setResult(res);
+        setTimeout(() => {
+          setTitle('');
+          setContent('');
+          setPendingFile(null);
+          setResult(null);
+          setSourceType('text');
+        }, 600);
+      } catch (err) {
+        setError(err.message || 'File upload failed. Please try again.');
+      }
+      return;
+    }
+
+    // Text path — ingest via /memory/ingest
     if (!title.trim() || !content.trim()) {
       setError('Both title and content are required.');
       return;
@@ -43,6 +70,7 @@ export default function IngestModal() {
   const handleClose = () => {
     setTitle('');
     setContent('');
+    setPendingFile(null);
     setResult(null);
     setError('');
     setSourceType('text');
@@ -50,13 +78,26 @@ export default function IngestModal() {
   };
 
   /* ── Drag & drop / file read helpers ── */
+  const BINARY_EXTS = ['pdf'];
+
   const readFile = (file) => {
     if (!file) return;
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    if (!title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ''));
+    setSourceType('file');
+
+    // Binary files (PDF) — store the File object for upload
+    if (BINARY_EXTS.includes(ext)) {
+      setPendingFile(file);
+      setContent(`[PDF file selected: ${file.name} — ${(file.size / 1024).toFixed(1)} KB]`);
+      return;
+    }
+
+    // Text-based files — read into textarea
+    setPendingFile(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       setContent(e.target.result);
-      if (!title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ''));
-      setSourceType('file');
     };
     reader.readAsText(file);
   };
@@ -149,13 +190,28 @@ export default function IngestModal() {
                 {isDragging ? 'Drop file here' : 'Drag & drop a file'}
               </p>
               <p className="text-[11px] text-text-muted/50 mt-1">
-                or click to browse &bull; .txt, .md, .csv
+                or click to browse &bull; .pdf, .txt, .md, .csv
               </p>
             </div>
+            {pendingFile && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20">
+                <FileText className="w-4 h-4 text-primary-light" />
+                <span className="text-xs text-primary-light font-medium truncate max-w-[200px]">
+                  {pendingFile.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setPendingFile(null); setContent(''); setSourceType('text'); }}
+                  className="ml-1 w-5 h-5 rounded-full hover:bg-surface-light/60 flex items-center justify-center"
+                >
+                  <X className="w-3 h-3 text-text-muted" />
+                </button>
+              </div>
+            )}
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.csv,.json,.log"
+              accept=".pdf,.txt,.md,.csv,.json,.log"
               onChange={handleFileInput}
               className="hidden"
             />
@@ -219,7 +275,7 @@ export default function IngestModal() {
           </button>
           <button
             onClick={handleIngest}
-            disabled={isIngesting || !title.trim() || !content.trim()}
+            disabled={isIngesting || !title.trim() || (!content.trim() && !pendingFile)}
             className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary to-primary-dark hover:from-primary-light hover:to-primary disabled:from-surface-lighter disabled:to-surface-lighter disabled:cursor-not-allowed text-white text-sm font-semibold transition-all cursor-pointer btn-press shadow-lg shadow-primary/20 disabled:shadow-none"
           >
             {isIngesting ? (
