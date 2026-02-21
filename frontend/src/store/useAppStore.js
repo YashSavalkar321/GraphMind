@@ -1,8 +1,5 @@
 import { create } from 'zustand';
 import {
-  USERS,
-  INGESTED_DOCS,
-  MINDMAP_DATA,
   simulateChatResponse,
   simulateIngest,
 } from '../data/mockData';
@@ -126,7 +123,7 @@ const useAppStore = create((set, get) => ({
     set({
       isAuthenticated: false,
       authUser: null,
-      currentUserId: USERS[0].id,
+      currentUserId: null,
       messages: [],
       chatHistory: [],
       activeChatId: null,
@@ -217,15 +214,15 @@ const useAppStore = create((set, get) => ({
   },
 
   // ──────────────── User state ────────────────
-  users: USERS,
-  currentUserId: storedAuth?.user?.user_id || USERS[0].id,
+  users: [],
+  currentUserId: storedAuth?.user?.user_id || null,
 
   getCurrentUser: () => {
-    const { users, currentUserId, authUser, isAuthenticated } = get();
+    const { authUser, isAuthenticated } = get();
     if (isAuthenticated && authUser) {
       return authUser;
     }
-    return users.find((u) => u.id === currentUserId) || USERS[0];
+    return null;
   },
 
   switchUser: (userId) => {
@@ -241,7 +238,7 @@ const useAppStore = create((set, get) => ({
   },
 
   // ──────────────── Documents state ────────────────
-  ingestedDocs: { ...INGESTED_DOCS },
+  ingestedDocs: {},
 
   getDocsForCurrentUser: () => {
     const { ingestedDocs, currentUserId } = get();
@@ -249,7 +246,7 @@ const useAppStore = create((set, get) => ({
   },
 
   // ──────────────── Mindmap state ────────────────
-  mindmapData: { ...MINDMAP_DATA },
+  mindmapData: {},
 
   getMindmapForCurrentUser: () => {
     const { mindmapData, currentUserId } = get();
@@ -362,6 +359,7 @@ const useAppStore = create((set, get) => ({
       timestamp: new Date().toISOString(),
       retrieval_time_ms: data.retrieval_time_ms,
       memory_citations: data.memory_citations,
+      broad_query: data.broad_query ?? false,
     };
 
     set((s) => {
@@ -376,6 +374,9 @@ const useAppStore = create((set, get) => ({
         ),
       };
     });
+
+    // Refresh mindmap — chat may create new graph nodes/edges
+    get().fetchMindmap();
   },
 
   // ──────────────── Ingest state ────────────────
@@ -439,5 +440,10 @@ const useAppStore = create((set, get) => ({
     setTimeout(() => set({ toast: null }), 4000);
   },
 }));
+
+// Auto-refresh graph from backend when app loads with persisted session
+if (storedAuth) {
+  setTimeout(() => useAppStore.getState().fetchMindmap(), 150);
+}
 
 export default useAppStore;

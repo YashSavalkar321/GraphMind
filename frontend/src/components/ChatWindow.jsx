@@ -163,7 +163,7 @@ export default function ChatWindow() {
                 {msg.role === 'assistant' && (
                   <div className="bg-white/[0.03] px-5 py-3.5 border-t border-white/[0.06] rounded-b-2xl flex flex-col gap-3 items-start">
                     <PerformanceTimer timeMs={msg.retrieval_time_ms} />
-                    <CitationBadge citations={msg.memory_citations} />
+                    <CitationBadge citations={msg.memory_citations} broadQuery={msg.broad_query} />
                   </div>
                 )}
               </div>
