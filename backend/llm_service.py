@@ -115,13 +115,9 @@ EXTRACTION_SYSTEM_PROMPT = """\
 You are a Knowledge Graph Extractor. Analyze the user's text and output
 a valid JSON object with exactly these three keys:
 
-1. "entities": a list of objects, each with:
-   - "name" (string)
-   - "type" (string, e.g. "Technology", "Person", "Place", "Concept",
-     "Skill", "Topic", "Resource", "Goal", "Symptom", "Medication",
-     "Expense", "Destination")
-   - "category" (string — one of: "Health", "Finance", "Learning",
-     "Work", "Travel", "Personal", "General")
+1. "entities": a list of objects, each with "name" (string) and "type"
+   (string, e.g. "Technology", "Person", "Place", "Concept", "Skill",
+   "Topic", "Resource", "Goal").
 2. "relationships": a list of objects, each with "source" (string),
    "relation" (string, e.g. "LEARNING", "WORKS_AT", "LIKES",
    "PREREQUISITE_OF", "LEADS_TO", "RESOURCE_FOR", "WEAK_AT",
@@ -130,16 +126,7 @@ a valid JSON object with exactly these three keys:
    factual statement) and "entity_name" (string — the entity this fact
    is about).
 
-Category assignment rules:
-- Health : symptoms, medications, conditions, triggers, health habits, diet, sleep, exercise
-- Finance : budgets, expenses, income, savings, investments, financial goals, debts
-- Learning: skills, topics, courses, study plans, prerequisites, learning resources
-- Work    : projects, code, engineering tasks, team standards, tools, PR reviews, deadlines
-- Travel  : destinations, trips, hotels, flights, itineraries, travel preferences
-- Personal: hobbies, personal preferences, relationships, habits, life events
-- General : anything that does not fit the above categories
-
-Other rules:
+Rules:
 - Extract ALL meaningful entities, even implicit ones.
 - Every fact must reference an entity by name.
 - Use UPPER_SNAKE_CASE for relation names.
@@ -148,6 +135,7 @@ Other rules:
   {"entities": [], "relationships": [], "facts": []}
   Questions are NOT factual statements — do NOT create entities from them.
 - Only extract from DECLARATIVE statements.
+- Recognize learning/prerequisite relationships when present.
 - Output ONLY the JSON object — no markdown, no explanation.
 """
 

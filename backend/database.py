@@ -58,7 +58,13 @@ class Neo4jConnection:
             self.close_driver()
 
         logger.info("Connecting to Neo4j at %s …", uri)
-        self._driver = GraphDatabase.driver(uri, auth=(user, password))
+        self._driver = GraphDatabase.driver(
+            uri,
+            auth=(user, password),
+            max_connection_pool_size=50,
+            connection_acquisition_timeout=30,
+            max_connection_lifetime=3600,
+        )
 
     def close_driver(self) -> None:
         """Gracefully close the Neo4j driver."""
@@ -142,10 +148,17 @@ class Neo4jConnection:
                 "CREATE INDEX index_interaction_ts IF NOT EXISTS "
                 "FOR (i:Interaction) ON (i.timestamp)",
             ),
+            # Composite index for Fact (content + user_id) — speeds up MERGE dedup
             (
-                "index_category_user",
-                "CREATE INDEX index_category_user IF NOT EXISTS "
-                "FOR (c:Category) ON (c.user_id, c.name)",
+                "index_fact_content_user",
+                "CREATE INDEX index_fact_content_user IF NOT EXISTS "
+                "FOR (f:Fact) ON (f.content, f.user_id)",
+            ),
+            # Index for Interaction.user_id — speeds up history/search queries
+            (
+                "index_interaction_user",
+                "CREATE INDEX index_interaction_user IF NOT EXISTS "
+                "FOR (i:Interaction) ON (i.user_id)",
             ),
         ]
 
@@ -172,15 +185,22 @@ class Neo4jConnection:
         parameters: Optional[Dict[str, Any]] = None,
         database: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Run a **read** Cypher query and return records as dicts."""
+        """Run a **read** Cypher query and return records as dicts.
+
+        Uses an explicit read transaction for automatic retries
+        and proper routing to read replicas in cluster setups.
+        """
         if self._driver is None:
             raise RuntimeError("Driver not initialised. Call init_driver() first.")
 
         parameters = parameters or {}
 
-        with self._driver.session(database=database) as session:
-            result: Result = session.run(cypher, parameters)
+        def _tx_fn(tx):
+            result = tx.run(cypher, parameters)
             return [record.data() for record in result]
+
+        with self._driver.session(database=database) as session:
+            return session.execute_read(_tx_fn)
 
     def execute_write(
         self,

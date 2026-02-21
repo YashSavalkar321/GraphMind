@@ -22,9 +22,6 @@ class IngestRequest(BaseModel):
         ..., min_length=1,
         description="Raw user message to extract entities/facts from.",
     )
-    user_id: Optional[str] = Field(default=None, description="User ID (can also come from JWT).")
-    source_type: str = Field(default="text", description="Source type: text, file, url.")
-    title: str = Field(default="", description="Optional document title.")
 
 
 class ChatRequest(BaseModel):
@@ -33,7 +30,6 @@ class ChatRequest(BaseModel):
         ..., min_length=1,
         description="The user's current question.",
     )
-    user_id: Optional[str] = Field(default=None, description="User ID (can also come from JWT).")
 
 
 class RoadmapRequest(BaseModel):
@@ -73,14 +69,6 @@ class ExtractionResult(BaseModel):
     relationships: List[MemoryRelationship] = Field(default_factory=list)
     facts: List[MemoryFact] = Field(default_factory=list)
 
-# ── Memory Citation ────────────────────────────────────────────
-
-
-class MemoryCitation(BaseModel):
-    """A memory node citation returned alongside chat answers."""
-    node_id: str = Field(..., description="Graph node identifier.")
-    title: str = Field(..., description="Display name of the cited memory node.")
-    snippet: str = Field(default="", description="Short excerpt from the node.")
 
 # ── Response Models ─────────────────────────────────────────────
 
@@ -98,13 +86,6 @@ class ChatResponse(BaseModel):
     total_facts_scanned: int = Field(default=0, description="Total facts evaluated.")
     facts_selected: int = Field(default=0, description="Top-N facts after relevance filter.")
     perf: Optional[dict] = Field(default=None, description="Performance breakdown (ms).")
-    memory_citations: List[MemoryCitation] = Field(
-        default_factory=list, description="Graph nodes cited in the answer.",
-    )
-    # Frontend-compatible alias for `answer`
-    response: str = Field(default="", description="Alias for `answer` (frontend contract).")
-    # True when the query had no specific keywords (broad question like "tell me about myself")
-    broad_query: bool = Field(default=False, description="True for general/broad queries answered from history.")
 
 
 class IngestResponse(BaseModel):
@@ -113,13 +94,6 @@ class IngestResponse(BaseModel):
     entities_created: int = Field(default=0)
     facts_created: int = Field(default=0)
     message: str = Field(default="Memory ingested successfully.")
-    # Frontend-compatible fields (sdBackend contract)
-    id: str = Field(default="")
-    title: str = Field(default="")
-    type: str = Field(default="text")
-    chunks: int = Field(default=1)
-    nodesCreated: int = Field(default=0)
-    edgesCreated: int = Field(default=0)
 
 
 class UserProfileResponse(BaseModel):
@@ -189,74 +163,34 @@ class MindmapResponse(BaseModel):
     edges: List[MindmapEdge] = Field(default_factory=list)
 
 
-# ── Auth Models ──────────────────────────────────────────────────
+# ── Chat Session Models ─────────────────────────────────────────
 
 
-class SignupRequest(BaseModel):
-    """Payload for user signup."""
-    name: str = Field(..., min_length=1, max_length=100)
-    email: str = Field(..., min_length=3)
-    password: str = Field(..., min_length=6)
+class ChatMessage(BaseModel):
+    """A single message in a chat session."""
+    role: str = Field(..., description="'user' or 'assistant'")
+    content: str = Field(..., description="Message text.")
+    timestamp: Optional[str] = Field(default=None, description="ISO timestamp.")
 
 
-class SignupResponse(BaseModel):
-    """Response from /auth/signup."""
-    user_id: str
-    name: str
-    email: str
-    token: str
+class ChatSessionSummary(BaseModel):
+    """Summary of a chat session (for listing)."""
+    session_id: str = Field(..., description="Unique session identifier.")
+    title: str = Field(default="New Chat", description="Session title (first user message).")
+    message_count: int = Field(default=0)
+    created_at: str = Field(default="", description="ISO timestamp of creation.")
+    updated_at: str = Field(default="", description="ISO timestamp of last message.")
 
 
-class LoginRequest(BaseModel):
-    """Payload for user login."""
-    email: str
-    password: str
+class ChatSessionDetail(BaseModel):
+    """Full chat session with all messages."""
+    session_id: str
+    title: str = Field(default="New Chat")
+    messages: List[ChatMessage] = Field(default_factory=list)
+    created_at: str = Field(default="")
+    updated_at: str = Field(default="")
 
 
-class LoginResponse(BaseModel):
-    """Response from /auth/login."""
-    user_id: str
-    name: str
-    email: str
-    token: str
-
-
-# ── React Flow / Mindmap Models ──────────────────────────────────
-
-
-class ReactFlowNodeData(BaseModel):
-    """Data payload for a React Flow node."""
-    label: str
-    description: str = ""
-    nodeType: str = "concept"
-    docSource: str = ""
-
-
-class ReactFlowPosition(BaseModel):
-    """X/Y position for a React Flow node."""
-    x: float
-    y: float
-
-
-class ReactFlowNode(BaseModel):
-    """A single React Flow node (for /memory/mindmap)."""
-    id: str
-    type: str = "concept"
-    data: ReactFlowNodeData
-    position: ReactFlowPosition
-
-
-class ReactFlowEdge(BaseModel):
-    """A single React Flow edge (for /memory/mindmap)."""
-    id: str
-    source: str
-    target: str
-    label: str = ""
-    animated: bool = False
-    style: Optional[dict] = None
-
-
-class ReactFlowMindmapResponse(BaseModel):
-    """React Flow graph payload returned by GET /memory/mindmap."""
-    nodes: List[ReactFlowNode] = Field(default_factory=list)
-    edges: List[ReactFlowEdge] = Field(default_factory=list)
+class ChatSessionListResponse(BaseModel):
+    """Response from /chat-sessions endpoint."""
+    sessions: List[ChatSessionSummary] = Field(default_factory=list)
