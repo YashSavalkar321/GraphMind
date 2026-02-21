@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-load_dotenv()
+load_dotenv(override=True)
 
 logger = logging.getLogger("graphmind.auth")
 

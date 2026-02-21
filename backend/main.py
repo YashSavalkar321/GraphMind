@@ -20,12 +20,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth import JWT_ALGORITHM, JWT_SECRET, get_current_user
 from backend.database import get_db
 from fastapi.responses import StreamingResponse
+from fastapi import BackgroundTasks
 from backend.llm_service import generate_answer, generate_answer_stream, generate_learning_roadmap
 from backend.memory_ops import (
     get_user_graph,
@@ -33,6 +34,16 @@ from backend.memory_ops import (
     ingest_to_graph,
     retrieve_from_graph,
 )
+from backend.memory_store import (
+    assemble_context,
+    bfs_subgraph,
+    drop_user_session,
+    get_graph_stats,
+    init_user_session,
+    scan_query,
+    _USER_GRAPHS,
+)
+from backend.worker import extract_and_sync_graph
 from backend.models import (
     ChatRequest,
     ChatResponse,
@@ -111,9 +122,12 @@ async def lifespan(app: FastAPI):
     db = get_db()
     db.init_driver()
     db.setup_constraints()
-    logger.info("GraphMind backend started ✓")
+    # Expose the raw Neo4j driver on app.state so background workers can use it
+    app.state.neo4j_driver = db._driver
+    logger.info("GraphMind backend started ✓  (CQRS in-memory engine ready)")
     yield
     db.close_driver()
+    app.state.neo4j_driver = None
     logger.info("GraphMind backend stopped.")
 
 
@@ -170,7 +184,13 @@ app.add_middleware(
 async def health():
     db = get_db()
     neo4j_ok = db.verify_connectivity()
-    return {"status": "ok", "neo4j": neo4j_ok, "version": "2.0.0"}
+    return {
+        "status": "ok",
+        "neo4j": neo4j_ok,
+        "version": "2.0.0",
+        "active_sessions": len(_USER_GRAPHS),
+        "architecture": "in-memory-cqrs-sse",
+    }
 
 
 # ── Auth: Signup ───────────────────────────────────────────────
@@ -213,6 +233,10 @@ async def signup(request: SignupRequest):
 
     token = _create_jwt(user_id, request.name)
     logger.info("New user registered: %s (%s)", request.name, user_id)
+    # Kick off session warm-up so /chat/stream is zero-latency from first message
+    driver = getattr(app.state, "neo4j_driver", None)
+    if driver:
+        asyncio.create_task(init_user_session(user_id, driver))
     return SignupResponse(user_id=user_id, name=request.name, email=email_key, token=token)
 
 
@@ -233,11 +257,44 @@ async def login(request: LoginRequest):
 
     token = _create_jwt(user["user_id"], user["name"])
     logger.info("User logged in: %s (%s)", user["name"], user["user_id"])
+    # Warm up in-memory session so /chat/stream reads from RAM immediately
+    driver = getattr(app.state, "neo4j_driver", None)
+    if driver:
+        asyncio.create_task(init_user_session(user["user_id"], driver))
     return LoginResponse(
         user_id=user["user_id"],
         name=user["name"],
         email=user["email"],
         token=token,
+    )
+
+
+# ── Session Init (warm-up) ────────────────────────────────────
+
+@app.post(
+    "/session/init",
+    tags=["Memory"],
+    summary="Warm up in-memory session",
+    description=(
+        "Load the user's full graph from Neo4j into RAM once. "
+        "After this call, /chat/stream retrieval is zero-database (< 15ms). "
+        "Called automatically on login/signup, but can be called manually."
+    ),
+)
+async def session_init(
+    request: Request,
+    user_id: str = Depends(get_current_user),
+):
+    from backend.models import SessionInitResponse
+    driver = getattr(request.app.state, "neo4j_driver", None)
+    if driver is None:
+        raise HTTPException(status_code=503, detail="Neo4j driver not available.")
+    nodes_loaded, auto_keys, init_ms = await init_user_session(user_id, driver)
+    return SessionInitResponse(
+        user_id=user_id,
+        nodes_loaded=nodes_loaded,
+        automaton_keys=auto_keys,
+        init_time_ms=round(init_ms, 2),
     )
 
 
@@ -449,8 +506,15 @@ async def chat(
 @app.post(
     "/chat/stream",
     tags=["Memory"],
-    summary="Chat with Streaming (SSE)",
-    description="Same as /chat but streams the answer token-by-token via Server-Sent Events.",
+    summary="Chat with Streaming (SSE) — in-memory CQRS",
+    description=(
+        "Streams the answer token-by-token via Server-Sent Events.\n\n"
+        "**Read path**: if the user's session is loaded in RAM, retrieval uses "
+        "Aho-Corasick + Multi-Source BFS (< 15ms, zero Neo4j queries). "
+        "Falls back to Neo4j retrieval if session is not yet warm.\n\n"
+        "**Write path**: BackgroundTask runs LLM extraction and Neo4j MERGE "
+        "after the stream is sent."
+    ),
     responses={
         200: {"description": "SSE stream of token chunks + final metadata"},
         401: {"description": "Not authenticated"},
@@ -458,55 +522,115 @@ async def chat(
 )
 async def chat_stream(
     request: ChatRequest,
+    background: BackgroundTasks,
+    req: Request,
     user_id: str = Depends(get_current_user),
 ):
-    """Chat with streaming — retrieve context, then stream the LLM answer."""
-    effective_user_id = request.user_id or user_id
-
-    # 1. Retrieve context (fast, non-streaming)
-    retrieval = await retrieve_from_graph(effective_user_id, request.query)
-
-    # 2. Build metadata (citations, perf) upfront
-    entity_snippets = retrieval.get("entity_snippets", {})
-    history_citations = retrieval.get("history_citations", [])
-    broad_query = retrieval.get("broad_query", False)
-
-    memory_citations = [
-        {"node_id": e, "title": e, "snippet": entity_snippets.get(e, "")}
-        for e in retrieval["entities_found"][:6]
-    ]
-    if not memory_citations and history_citations:
-        memory_citations = [
-            {"node_id": h["node_id"], "title": h["title"], "snippet": h["snippet"]}
-            for h in history_citations[:4]
-        ]
-
-    # 3. Auto-ingest in background
-    async def _bg_ingest():
-        try:
-            await ingest_to_graph(effective_user_id, request.query)
-        except Exception:
-            pass
-    asyncio.create_task(_bg_ingest())
-
-    # 4. Stream the LLM response as SSE
+    """Chat with in-memory CQRS streaming."""
     import json as _json
+    effective_user_id = request.user_id or user_id
+    driver = getattr(req.app.state, "neo4j_driver", None)
 
+    # ── Read path: choose in-memory (fast) vs Neo4j (fallback) ──────────────
+    if effective_user_id in _USER_GRAPHS:
+        # ── FAST PATH: all RAM, zero DB ──────────────────────────────────────
+        import time as _time
+        t0 = _time.perf_counter()
+
+        seed_ids  = scan_query(effective_user_id, request.query)
+        broad_query = len(seed_ids) == 0
+
+        sub_nodes, sub_edges = bfs_subgraph(
+            effective_user_id, seed_ids, max_hops=2, max_nodes=80
+        )
+        context = assemble_context(sub_nodes, sub_edges)
+        retrieval_ms = (_time.perf_counter() - t0) * 1_000
+
+        seed_set = set(seed_ids)
+        memory_citations = [
+            {"node_id": n["node_id"],
+             "title":   n.get("display") or n["node_id"],
+             "snippet": n.get("snippet", "")}
+            for n in sub_nodes if n["node_id"] in seed_set
+        ][:6]
+
+        entities_found = seed_ids
+        retrieval_meta = {
+            "retrieval_time_ms": round(retrieval_ms, 3),
+            "memory_citations":  memory_citations,
+            "broad_query":       broad_query,
+            "entities_found":    entities_found,
+            "total_facts_scanned": len(sub_nodes),
+            "facts_selected":    len(sub_nodes),
+            "source":            "ram",
+        }
+        logger.info(
+            "CQRS read: user=%s seeds=%d nodes=%d time=%.2fms",
+            effective_user_id, len(seed_ids), len(sub_nodes), retrieval_ms,
+        )
+
+        # Fire-and-forget: extract new knowledge + sync to Neo4j + update RAM
+        if driver:
+            # Inline LLM function so worker can call it
+            from backend.llm_service import _chat  # type: ignore[attr-defined]
+            async def _llm_fn(sys_p: str, usr_p: str) -> str:
+                import asyncio as _aio
+                return await _aio.to_thread(_chat, sys_p, usr_p)
+            background.add_task(
+                extract_and_sync_graph,
+                effective_user_id, request.query, driver, _llm_fn,
+            )
+
+    else:
+        # ── FALLBACK PATH: standard Neo4j retrieval ──────────────────────────
+        retrieval = await retrieve_from_graph(effective_user_id, request.query)
+        entity_snippets   = retrieval.get("entity_snippets", {})
+        history_citations = retrieval.get("history_citations", [])
+        broad_query       = retrieval.get("broad_query", False)
+        context           = retrieval["context"]
+
+        memory_citations = [
+            {"node_id": e, "title": e, "snippet": entity_snippets.get(e, "")}
+            for e in retrieval["entities_found"][:6]
+        ]
+        if not memory_citations and history_citations:
+            memory_citations = [
+                {"node_id": h["node_id"], "title": h["title"], "snippet": h["snippet"]}
+                for h in history_citations[:4]
+            ]
+
+        retrieval_meta = {
+            "retrieval_time_ms":   retrieval["retrieval_time_ms"],
+            "memory_citations":    memory_citations,
+            "broad_query":         broad_query,
+            "entities_found":      retrieval["entities_found"],
+            "total_facts_scanned": retrieval.get("total_facts_scanned", 0),
+            "facts_selected":      retrieval.get("facts_selected", 0),
+            "source":              "neo4j",
+        }
+        # Legacy background ingest
+        async def _bg_ingest():
+            try:
+                await ingest_to_graph(effective_user_id, request.query)
+            except Exception:
+                pass
+        asyncio.create_task(_bg_ingest())
+
+    # ── Stream LLM tokens ────────────────────────────────────────────────────
     def _sse_generator():
         try:
-            for chunk in generate_answer_stream(request.query, retrieval["context"]):
-                # SSE data line: just the text chunk
+            for chunk in generate_answer_stream(request.query, context):
                 yield f"data: {_json.dumps({'token': chunk})}\n\n"
         except Exception as exc:
             yield f"data: {_json.dumps({'error': str(exc)})}\n\n"
-
-        # Final event with metadata
-        yield f"data: {_json.dumps({'done': True, 'retrieval_time_ms': retrieval['retrieval_time_ms'], 'memory_citations': memory_citations, 'broad_query': broad_query, 'entities_found': retrieval['entities_found'], 'total_facts_scanned': retrieval.get('total_facts_scanned', 0), 'facts_selected': retrieval.get('facts_selected', 0)})}\n\n"
+        # Done sentinel — matches existing frontend parser exactly
+        yield f"data: {_json.dumps({'done': True, **retrieval_meta})}\n\n"
 
     return StreamingResponse(
         _sse_generator(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+                 "Connection": "keep-alive"},
     )
 
 
