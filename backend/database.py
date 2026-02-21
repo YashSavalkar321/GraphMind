@@ -20,7 +20,8 @@ from dotenv import load_dotenv
 from neo4j import GraphDatabase, Driver, Result
 
 # ── Load environment variables ──────────────────────────────────
-load_dotenv()
+# override=True ensures .env values always win over stale system env vars
+load_dotenv(override=True)
 
 logger = logging.getLogger("graphmind.database")
 

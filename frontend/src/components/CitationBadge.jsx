@@ -1,9 +1,10 @@
-import { Bookmark, ChevronRight } from 'lucide-react';
+import { Bookmark, ChevronRight, Network } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 
 export default function CitationBadge({ citations, broadQuery = false }) {
-  const highlightNode = useAppStore((s) => s.highlightNode);
-  const setActiveView = useAppStore((s) => s.setActiveView);
+  const highlightNode        = useAppStore((s) => s.highlightNode);
+  const setActiveView        = useAppStore((s) => s.setActiveView);
+  const focusRetrievalNodes  = useAppStore((s) => s.focusRetrievalNodes);
 
   // History-only citations come back with title === 'Conversation History'
   const isHistoryAnswer =
@@ -48,14 +49,24 @@ export default function CitationBadge({ citations, broadQuery = false }) {
 
   return (
     <div className="w-full">
-      <div className="flex items-center gap-2 mb-3">
-        <Bookmark className="w-4 h-4 text-primary-light" />
-        <span className="text-xs uppercase tracking-widest font-bold text-primary-light/90">
-          Memory Citations ({citations.length})
-        </span>
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <Bookmark className="w-4 h-4 text-primary-light" />
+          <span className="text-xs uppercase tracking-widest font-bold text-primary-light/90">
+            Memory Citations ({citations.length})
+          </span>
+        </div>
+        <button
+          onClick={() => focusRetrievalNodes(citations.map((c) => c.node_id))}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-success/15 border border-success/30 hover:bg-success/25 hover:border-success/50 transition-all cursor-pointer text-[11px] font-semibold text-success"
+          title="Show all cited nodes and their neighbours in the mind map"
+        >
+          <Network className="w-3.5 h-3.5" />
+          Show subgraph
+        </button>
       </div>
-      
-      {/* Safe wrapping container */}
+
+      {/* Individual citation chips */}
       <div className="flex flex-wrap items-center gap-3">
         {citations.map((cite, i) => (
           <button

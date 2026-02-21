@@ -294,3 +294,14 @@ class ChatSessionResponse(BaseModel):
     messages: List[dict] = Field(default_factory=list)
     createdAt: str = ""
     updatedAt: str = ""
+
+
+# ── In-Memory CQRS session ───────────────────────────────────────
+
+
+class SessionInitResponse(BaseModel):
+    """Response from POST /session/init — in-memory warm-up."""
+    user_id:        str
+    nodes_loaded:   int   = Field(..., description="Nodes loaded into RAM.")
+    automaton_keys: int   = Field(..., description="Approximate Aho-Corasick key count.")
+    init_time_ms:   float = Field(..., description="Time taken to load and compile (ms.).")

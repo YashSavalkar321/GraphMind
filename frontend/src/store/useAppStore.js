@@ -356,6 +356,17 @@ const useAppStore = create((set, get) => ({
     }, 3000);
   },
 
+  /**
+   * Retrieval subgraph focus — shows the nodes used to answer a query.
+   * Pass an array of node IDs (from memory_citations). Switches to graph view.
+   */
+  retrievalFocusNodeIds: null,   // null = off, Set<string> = active
+  focusRetrievalNodes: (nodeIds) => {
+    if (!nodeIds || nodeIds.length === 0) return;
+    set({ retrievalFocusNodeIds: new Set(nodeIds), activeView: 'graph' });
+  },
+  clearRetrievalFocus: () => set({ retrievalFocusNodeIds: null }),
+
   // ──────────────── Chat state ────────────────
   messages: [],
   isTyping: false,
@@ -490,6 +501,8 @@ const useAppStore = create((set, get) => ({
       }));
       const activeChat = get().chatHistory.find((c) => c.id === get().activeChatId);
       if (activeChat) get()._saveChat(activeChat);
+      // Refresh mindmap — ingest already ran server-side before streaming started
+      get().fetchMindmap();
     } catch (err) {
       console.warn('stream API unavailable, falling back:', err.message);
 
@@ -531,8 +544,8 @@ const useAppStore = create((set, get) => ({
       });
       // Persist fallback chat to backend too
       const activeChat = get().chatHistory.find((c) => c.id === get().activeChatId);
-      if (activeChat) get()._saveChat(activeChat);
-    }
+      if (activeChat) get()._saveChat(activeChat);      // Refresh mindmap after fallback response
+      get().fetchMindmap();    }
   },
 
   // ──────────────── Ingest state ────────────────

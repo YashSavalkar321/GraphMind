@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -138,6 +138,13 @@ function GraphCanvasInner() {
   const setSelectedNode = useAppStore((s) => s.setSelectedNode);
   const { fitView } = useReactFlow();
 
+  // Focus mode: which node ID is currently focused (neighbourhood shown)
+  const [focusedNodeId, setFocusedNodeId] = useState(null);
+
+  // Store-level retrieval focus (set from CitationBadge "Show subgraph" button)
+  const retrievalFocusNodeIds = useAppStore((s) => s.retrievalFocusNodeIds);
+  const clearRetrievalFocus   = useAppStore((s) => s.clearRetrievalFocus);
+
   // Hook: citation-click → pan + glow
   useGraphHighlight();
 
@@ -198,11 +205,66 @@ function GraphCanvasInner() {
     };
   }, [fitView]);
 
-  /* Node click toggles detail panel */
-  const onNodeClick = useCallback(
-    (_, node) => setSelectedNode(node.id === selectedNode ? null : node.id),
-    [selectedNode, setSelectedNode],
+  /* ── Focus-mode: compute 1-hop neighbourhood ──
+     Priority: retrievalFocusNodeIds (from citations) > local focusedNodeId */
+  const neighborIds = useMemo(() => {
+    const focalSet = retrievalFocusNodeIds ?? (focusedNodeId ? new Set([focusedNodeId]) : null);
+    if (!focalSet) return null;
+    const ids = new Set(focalSet);
+    (graphData?.edges || []).forEach((e) => {
+      if (focalSet.has(e.source)) ids.add(e.target);
+      if (focalSet.has(e.target)) ids.add(e.source);
+    });
+    return ids;
+  }, [focusedNodeId, retrievalFocusNodeIds, graphData?.edges]);
+
+  const isRetrievalMode = !!retrievalFocusNodeIds;
+
+  /* Apply focus-mode opacity overlay on top of base nodes/edges */
+  const displayNodes = useMemo(
+    () =>
+      nodes.map((n) => ({
+        ...n,
+        style: {
+          ...n.style,
+          opacity: neighborIds ? (neighborIds.has(n.id) ? 1 : 0.07) : 1,
+          transition: 'opacity 0.25s ease',
+          pointerEvents: neighborIds && !neighborIds.has(n.id) ? 'none' : 'auto',
+        },
+      })),
+    [nodes, neighborIds],
   );
+
+  const displayEdges = useMemo(
+    () =>
+      edges.map((e) => {
+        const visible = !neighborIds ||
+          (neighborIds.has(e.source) && neighborIds.has(e.target));
+        return {
+          ...e,
+          style: { ...e.style, opacity: visible ? 1 : 0.04, transition: 'opacity 0.25s ease' },
+          animated: visible && !!focusedNodeId,
+        };
+      }),
+    [edges, neighborIds, focusedNodeId],
+  );
+
+  /* Node click: toggle focus + detail panel */
+  const onNodeClick = useCallback(
+    (_, node) => {
+      const isSame = node.id === focusedNodeId;
+      setFocusedNodeId(isSame ? null : node.id);
+      setSelectedNode(isSame ? null : node.id);
+    },
+    [focusedNodeId, setSelectedNode],
+  );
+
+  /* Pane click: clear all focus modes */
+  const onPaneClick = useCallback(() => {
+    setFocusedNodeId(null);
+    setSelectedNode(null);
+    clearRetrievalFocus();
+  }, [setSelectedNode, clearRetrievalFocus]);
 
   const selectedNodeData = (graphData?.nodes || []).find((n) => n.id === selectedNode);
 
@@ -237,11 +299,12 @@ function GraphCanvasInner() {
       {/* ── Canvas ── */}
       <div className="flex-1 relative">
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={displayNodes}
+          edges={displayEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
+          onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
           fitView
           fitViewOptions={{ padding: 0.25 }}
@@ -267,11 +330,48 @@ function GraphCanvasInner() {
           />
         </ReactFlow>
 
+        {/* Retrieval subgraph banner */}
+        {isRetrievalMode && neighborIds && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2.5 px-4 py-2 rounded-xl bg-surface border border-success/40 shadow-lg shadow-black/40 text-[11px] animate-fade-in">
+            <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
+            <span className="text-text-primary font-medium">
+              Retrieval subgraph &mdash; <span className="text-success font-bold">{retrievalFocusNodeIds.size}</span> source node{retrievalFocusNodeIds.size !== 1 ? 's' : ''} +{' '}
+              <span className="text-success font-bold">{neighborIds.size - retrievalFocusNodeIds.size}</span> neighbour{neighborIds.size - retrievalFocusNodeIds.size !== 1 ? 's' : ''}
+            </span>
+            <span className="text-text-muted/40">·</span>
+            <span className="text-text-muted text-[10px]">click canvas to reset</span>
+            <button
+              onClick={onPaneClick}
+              className="w-5 h-5 rounded-md hover:bg-white/10 flex items-center justify-center transition-colors cursor-pointer ml-1"
+            >
+              <X className="w-3 h-3 text-text-muted" />
+            </button>
+          </div>
+        )}
+
+        {/* Manual focus banner */}
+        {!isRetrievalMode && focusedNodeId && neighborIds && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2.5 px-4 py-2 rounded-xl bg-surface border border-primary/30 shadow-lg shadow-black/40 text-[11px] animate-fade-in">
+            <div className="w-2 h-2 rounded-full bg-primary-light animate-pulse" />
+            <span className="text-text-primary font-medium">
+              Showing <span className="text-primary-light font-bold">{neighborIds.size}</span> connected node{neighborIds.size !== 1 ? 's' : ''}
+            </span>
+            <span className="text-text-muted/40">·</span>
+            <span className="text-text-muted text-[10px]">click canvas to reset</span>
+            <button
+              onClick={onPaneClick}
+              className="w-5 h-5 rounded-md hover:bg-white/10 flex items-center justify-center transition-colors cursor-pointer ml-1"
+            >
+              <X className="w-3 h-3 text-text-muted" />
+            </button>
+          </div>
+        )}
+
         {/* Hint overlay */}
-        {!selectedNodeData && (graphData?.nodes?.length || 0) > 0 && (
+        {!focusedNodeId && !selectedNodeData && (graphData?.nodes?.length || 0) > 0 && (
           <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-2 rounded-xl glass text-[11px] text-text-muted/50 animate-fade-in pointer-events-none">
             <MousePointerClick className="w-3.5 h-3.5" />
-            Click a node to inspect
+            Click a node to focus its neighbourhood
           </div>
         )}
 
