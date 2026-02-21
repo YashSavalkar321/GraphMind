@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     qdrant_port: int = Field(6333, alias="QDRANT_PORT")
     qdrant_collection: str = Field("graphmind_chunks", alias="QDRANT_COLLECTION")
 
+    # ── Redis ──
+    redis_url: str = Field("redis://localhost:6379/0", alias="REDIS_URL")
+
+    # ── JWT Auth ──
+    jwt_secret: str = Field("graphmind-change-me-in-prod", alias="JWT_SECRET")
+    jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
+    jwt_expiry_hours: int = Field(24, alias="JWT_EXPIRY_HOURS")
+
     # ── Embedding ──
     embedding_model: str = Field("BAAI/bge-small-en-v1.5", alias="EMBEDDING_MODEL")
 

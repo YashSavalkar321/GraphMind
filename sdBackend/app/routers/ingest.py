@@ -1,7 +1,8 @@
 """
 GraphMind — POST /memory/ingest
 Ingests text: chunks it, extracts knowledge graph via LLM,
-stores nodes/edges in Neo4j, and embeds chunks into Qdrant.
+stores nodes/edges in Neo4j (with MERGE entity resolution),
+embeds chunks into Qdrant, and invalidates Redis caches.
 """
 
 import logging
@@ -16,6 +17,7 @@ from app.services.extraction import extract_graph
 from app.services.embeddings import embed_texts
 from app.services.neo4j_client import neo4j_client
 from app.services.vector_client import vector_client
+from app.services.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -47,28 +49,23 @@ async def ingest_document(req: IngestRequest):
         "Extracted %d nodes, %d edges", len(extraction.nodes), len(extraction.edges)
     )
 
-    # ── Step 3: Store nodes in Neo4j ──
-    # Map node name → node id for edge creation
+    # ── Step 3: Store nodes in Neo4j (MERGE-based entity resolution) ──
+    # merge_node handles dedup via toLower(name) normalization
+    # and links each node to the root User node via [:OWNS_MEMORY]
     name_to_id: Dict[str, str] = {}
     nodes_created = 0
 
     for node in extraction.nodes:
-        # Check if node already exists for this user
-        existing = await neo4j_client.find_node_by_name(req.user_id, node.name)
-        if existing:
-            name_to_id[node.name] = existing["id"]
-            logger.debug("Node '%s' already exists as %s", node.name, existing["id"])
-        else:
-            node_id = await neo4j_client.create_node(
-                user_id=req.user_id,
-                name=node.name,
-                node_type=node.node_type,
-                description=node.description,
-                source=doc_id,
-            )
-            name_to_id[node.name] = node_id
-            nodes_created += 1
-            logger.debug("Created node '%s' → %s", node.name, node_id)
+        node_id = await neo4j_client.merge_node(
+            user_id=req.user_id,
+            name=node.name,
+            node_type=node.node_type,
+            description=node.description,
+            source=doc_id,
+        )
+        name_to_id[node.name] = node_id
+        nodes_created += 1
+        logger.debug("Merged node '%s' → %s", node.name, node_id)
 
     # ── Step 4: Store edges in Neo4j ──
     edges_created = 0
@@ -110,6 +107,11 @@ async def ingest_document(req: IngestRequest):
         vectors=vectors,
     )
     logger.info("Stored %d vectors in Qdrant", len(vectors))
+
+    # ── Step 6: Invalidate Redis caches for this user ──
+    await redis_client.invalidate_mindmap(req.user_id)
+    await redis_client.invalidate_user_caches(req.user_id)
+    logger.debug("Invalidated Redis caches for user %s", req.user_id)
 
     return IngestResponse(
         id=doc_id,

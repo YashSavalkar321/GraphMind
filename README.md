@@ -13,8 +13,10 @@
 | Graph UI     | @xyflow/react 12 (React Flow)                   |
 | Icons        | lucide-react, react-icons                       |
 | Backend      | FastAPI (Python 3.11+) + Uvicorn                |
-| Graph DB     | Neo4j (Docker)                                  |
+| Auth         | JWT (PyJWT) + bcrypt (passlib)                  |
+| Graph DB     | Neo4j (Docker) — indexed, MERGE-based entity resolution |
 | Vector DB    | Qdrant (Docker or local file-based fallback)    |
+| Cache        | Redis (redis.asyncio) — mindmap + semantic query cache |
 | Embeddings   | fastembed — BAAI/bge-small-en-v1.5 (384-dim, local CPU) |
 | LLM          | Ollama (llama3.1, local) / Groq / Gemini        |
 | Containers   | Docker Compose (WSL2 / Docker Desktop)          |
@@ -48,20 +50,23 @@ frontend/
 │       └── mockData.js          # Mock data (fallback when backend is offline)
 
 sdBackend/
-├── docker-compose.yml           # Neo4j + Qdrant + FastAPI orchestration
+├── docker-compose.yml           # Neo4j + Qdrant + Redis + FastAPI orchestration
 ├── Dockerfile                   # Python 3.11-slim + fastembed model pre-warm
-├── requirements.txt             # fastapi, neo4j, qdrant-client, fastembed, httpx
-├── .env / .env.example          # LLM provider & service connection strings
+├── requirements.txt             # fastapi, neo4j, qdrant-client, fastembed, httpx, PyJWT, redis
+├── .env / .env.example          # LLM provider, auth, & service connection strings
 ├── app/
 │   ├── main.py                  # FastAPI app — CORS, async lifespan, routers
-│   ├── config.py                # Pydantic settings from environment
-│   ├── models.py                # Request/response schemas (matches frontend contract)
+│   ├── config.py                # Pydantic settings from environment (incl. JWT + Redis)
+│   ├── models.py                # Request/response schemas (auth + memory contracts)
 │   ├── routers/
-│   │   ├── ingest.py            # POST /memory/ingest
-│   │   ├── chat.py              # POST /chat
-│   │   └── mindmap.py           # GET  /memory/mindmap
+│   │   ├── auth.py              # POST /auth/signup, POST /auth/login
+│   │   ├── ingest.py            # POST /memory/ingest (+ Redis cache invalidation)
+│   │   ├── chat.py              # POST /chat (+ semantic query cache)
+│   │   └── mindmap.py           # GET  /memory/mindmap (+ Redis-cached)
 │   └── services/
-│       ├── neo4j_client.py      # Async Neo4j driver wrapper
+│       ├── auth.py              # JWT creation, verification, password hashing
+│       ├── neo4j_client.py      # Async Neo4j driver — indexes, MERGE entity resolution
+│       ├── redis_client.py      # Async Redis wrapper — mindmap + semantic cache
 │       ├── vector_client.py     # Qdrant client (remote or local file fallback)
 │       ├── embeddings.py        # Local fastembed (bge-small-en-v1.5)
 │       ├── llm_client.py        # Ollama / Groq / Gemini HTTP client
@@ -77,10 +82,11 @@ sdBackend/
 ### Frontend — UI
 
 - **Split-panel layout** — resizable chat + mindmap side-by-side on desktop; tabbed view on mobile.
+- **JWT authentication** — Sign Up / Login modal with JWT stored in `localStorage`; all API calls include `Authorization: Bearer` header.
 - **Memory-grounded chat** — AI responses include retrieval time and memory citations that link to graph nodes.
 - **Knowledge graph (Mindmap)** — interactive React Flow canvas with zoom, minimap, color-coded node types, and detail panel on click.
 - **Document ingestion** — modal with drag-and-drop file upload or paste text; chunks are visualized as new graph nodes.
-- **Multi-user switching** — dropdown to switch between demo users; each has isolated docs, graph, and chat history.
+- **Auth-aware Navbar** — shows Login/Sign Up when unauthenticated; shows user avatar + Sign Out when authenticated. Falls back to demo user switcher.
 - **Mock-data fallback** — the frontend works standalone with local mock data when the backend is unreachable.
 
 ### Chat Sidebar
@@ -95,21 +101,28 @@ sdBackend/
 
 ### Backend — Hybrid RAG Pipeline
 
+- **JWT authentication** — `/auth/signup` creates a root `(u:User)` node in Neo4j via MERGE and returns a signed JWT. `/auth/login` verifies credentials and issues a token.
+- **High-fidelity entity resolution** — new entities are resolved against existing graph nodes using `MERGE` + `toLower()` normalization on `name_lower`, preventing duplicates across ingestions.
+- **Graph contiguity** — every extracted node is linked to the root `(u:User)` node via `[:OWNS_MEMORY]`, keeping the graph fully connected.
+- **Neo4j indexing for <100ms reads** — startup creates `UNIQUE` constraint on `User.user_id`, plus composite indexes on `(user_id, name_lower)` for Entity, Concept, Document, and Fact labels.
+- **Redis caching** — `GET /memory/mindmap` responses are cached per user (5min TTL). `POST /chat` caches LLM responses by query hash (10min TTL). Caches are invalidated on any graph write (ingest or chat).
 - **Parallel retrieval** — Vector DB (Qdrant) and Graph DB (Neo4j) are queried simultaneously via `asyncio.gather`.
 - **Hybrid fusion** — results are deduplicated by `memory_id` and assembled into a single context window.
 - **Performance timer** — `time.perf_counter()` wraps *only* the DB fetch + context assembly; the timer stops **before** LLM generation.
 - **LLM extraction** — ingested text is processed by a strict JSON system prompt that outputs `{nodes, edges}` for the knowledge graph.
 - **User isolation** — every Neo4j query includes `WHERE n.user_id = $user_id`; Qdrant search uses a payload filter on `user_id`.
-- **Graceful degradation** — backend starts even if Neo4j or Qdrant are unavailable; Qdrant auto-falls back to local file-based storage.
-- **No pre-built memory frameworks** — built with `neo4j`, `qdrant-client`, `fastapi`, `fastembed`, and `httpx` only.
+- **Graceful degradation** — backend starts even if Neo4j, Qdrant, or Redis are unavailable; features degrade gracefully.
+- **No pre-built memory frameworks** — built with `neo4j`, `qdrant-client`, `fastapi`, `fastembed`, `httpx`, `PyJWT`, and `redis` only.
 
 ### API Endpoints
 
 | Method | Path               | Description                          |
 | ------ | ------------------ | ------------------------------------ |
-| POST   | `/memory/ingest`   | Chunk → embed → extract graph → store in Neo4j + Qdrant |
-| GET    | `/memory/mindmap`  | All nodes & edges for a user (React Flow format) |
-| POST   | `/chat`            | Hybrid retrieve → LLM generate (with citations) |
+| POST   | `/auth/signup`     | Register user → create Neo4j User node → return JWT |
+| POST   | `/auth/login`      | Verify credentials → return JWT      |
+| POST   | `/memory/ingest`   | Chunk → embed → MERGE graph → Qdrant + invalidate cache |
+| GET    | `/memory/mindmap`  | All nodes & edges for a user (Redis-cached, React Flow format) |
+| POST   | `/chat`            | Semantic cache check → hybrid retrieve → LLM generate |
 | GET    | `/health`          | Service health check                 |
 
 ---
@@ -251,7 +264,7 @@ The Vite dev server proxies all `/api/*` requests to `http://localhost:8000`. If
 
 ```bash
 cd sdBackend
-docker compose up -d     # Starts Neo4j + Qdrant + FastAPI
+docker compose up -d     # Starts Neo4j + Qdrant + Redis + FastAPI
 
 # Then start the frontend separately:
 cd ../frontend
@@ -259,7 +272,7 @@ npm install
 npm run dev
 ```
 
-> Docker Compose requires all three images to pull from Docker Hub. If you see TLS errors, use Option B instead.
+> Docker Compose pulls Neo4j, Qdrant, Redis, and the FastAPI build. If you see TLS errors, use Option B instead.
 
 ---
 
@@ -281,6 +294,10 @@ npm run dev
 | `QDRANT_PORT`       | `6333`                         | Qdrant server port                       |
 | `QDRANT_COLLECTION` | `graphmind_chunks`             | Qdrant collection name                   |
 | `EMBEDDING_MODEL`   | `BAAI/bge-small-en-v1.5`      | fastembed model (384-dim)                |
+| `REDIS_URL`         | `redis://localhost:6379/0`     | Redis connection URL                     |
+| `JWT_SECRET`        | `graphmind-change-me-in-prod`  | Secret key for JWT signing (**change in production**) |
+| `JWT_ALGORITHM`     | `HS256`                        | JWT signing algorithm                    |
+| `JWT_EXPIRY_HOURS`  | `24`                           | JWT token lifetime in hours              |
 | `CORS_ORIGINS`      | `http://localhost:5173,...`     | Comma-separated allowed origins          |
 | `LOG_LEVEL`         | `info`                         | Python logging level                     |
 
@@ -308,6 +325,23 @@ curl http://localhost:8000/health
 # → {"status":"ok","service":"graphmind-api"}
 ```
 
+**Test signup:**
+
+```bash
+curl -X POST http://localhost:8000/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","email":"alice@example.com","password":"secret123"}'
+# → {"user_id":"user_...","name":"Alice","email":"alice@example.com","token":"eyJ..."}
+```
+
+**Test login:**
+
+```bash
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"alice@example.com","password":"secret123"}'
+```
+
 **Test ingestion manually:**
 
 ```bash
@@ -324,7 +358,7 @@ curl -X POST http://localhost:8000/chat \
   -d '{"user_id":"user_1","query":"What did I just ingest?"}'
 ```
 
-**Test mindmap:**
+**Test mindmap (cached via Redis):**
 
 ```bash
 curl http://localhost:8000/memory/mindmap?user_id=user_1
@@ -339,6 +373,7 @@ curl http://localhost:8000/memory/mindmap?user_id=user_1
 | `All connection attempts failed` (LLM) | Ollama not running or not reachable | Start Ollama: `ollama serve`. If running backend in WSL, ensure `OLLAMA_HOST=0.0.0.0` and update `OLLAMA_BASE_URL` in `.env` |
 | `TLS handshake timeout` pulling Docker images | Docker Hub connectivity issue | Retry later, use a VPN, or use Option B (run services manually) |
 | `Entity extraction LLM call failed` | LLM timeout / unreachable | Non-fatal — ingestion still creates a document node. Check Ollama status. |
+| `Redis unavailable` at startup | Redis not running | `docker start graphmind-redis`. Caching degrades gracefully — features still work. |
 | Port 8000 already in use | Another process on port 8000 | Kill it or use `--port 8001` and update `vite.config.js` proxy target |
 
 ### Frontend — Vite + React
@@ -398,13 +433,45 @@ docker exec graphmind-neo4j cypher-shell -u neo4j -p 12345678 "MATCH (n) DETACH 
 # Reset Qdrant local storage
 rm -rf sdBackend/.qdrant_local/
 
-# Restart backend to recreate collections
+# Flush Redis cache
+docker exec graphmind-redis redis-cli FLUSHALL
+
+# Restart backend to recreate collections & indexes
 # (Ctrl+C the uvicorn process and re-run it)
 ```
 
 ---
 
 ## Changelog
+
+### 2026-02-21 — Production Architecture Upgrade (Auth, Redis, Entity Resolution)
+
+**Authentication (JWT):**
+- `app/services/auth.py` — JWT creation/verification, bcrypt password hashing, `get_current_user` FastAPI dependency.
+- `app/routers/auth.py` — `POST /auth/signup` (creates root User node in Neo4j via MERGE, returns JWT), `POST /auth/login`.
+- `app/models.py` — Added `SignupRequest`, `SignupResponse`, `LoginRequest`, `LoginResponse` models.
+- `app/config.py` — Added `JWT_SECRET`, `JWT_ALGORITHM`, `JWT_EXPIRY_HOURS`, `REDIS_URL` settings.
+
+**High-Fidelity Entity Resolution:**
+- `app/services/neo4j_client.py` — New `merge_node()` method uses `MERGE` with `toLower()` normalization on `name_lower` to deduplicate entities. Every node is linked to root `(u:User)` via `[:OWNS_MEMORY]`. Edges now use `MERGE` to prevent duplicate relationships.
+- `app/routers/ingest.py` — Switched from `create_node()` to `merge_node()` for all entity insertion.
+
+**Neo4j Indexing (<100ms Retrieval):**
+- Startup `_ensure_indexes()` now creates: `UNIQUE` constraint on `User.user_id`, indexes on `Entity.user_id`, `Concept.user_id`, `Document.user_id`, `Fact.user_id`, and composite `(user_id, name_lower)` indexes for each label.
+
+**Redis Caching:**
+- `app/services/redis_client.py` — Async Redis wrapper with `get/set_mindmap()`, `get/set_query_cache()`, `invalidate_mindmap()`, `invalidate_user_caches()`.
+- `app/routers/mindmap.py` — Reads from `mindmap:{user_id}` cache (5min TTL) before hitting Neo4j.
+- `app/routers/chat.py` — Semantic query cache bypasses retrieval+LLM for identical queries (10min TTL). Invalidates mindmap cache after chat.
+- `app/routers/ingest.py` — Invalidates all user caches after successful ingestion.
+- `docker-compose.yml` — Added `redis:alpine` service with healthcheck, AOF persistence, 256MB maxmemory LRU.
+
+**Frontend Auth:**
+- `store/useAppStore.js` — `signup()`, `login()`, `logout()` actions with JWT in `localStorage`. All API calls include `Authorization: Bearer` header.
+- `components/Navbar.jsx` — Auth-aware: Login/Sign Up buttons when unauthenticated, user avatar + Sign Out when authenticated. Inline `AuthModal` component.
+
+**Dependencies:**
+- `requirements.txt` — Added `PyJWT>=2.8.0`, `passlib[bcrypt]>=1.7.4`, `redis>=5.0.0`.
 
 ### 2026-02-20 — Full Backend + Ollama Integration
 

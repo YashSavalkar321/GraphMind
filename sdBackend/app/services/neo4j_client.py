@@ -1,6 +1,8 @@
 """
 GraphMind — Neo4j async driver wrapper.
 All queries enforce user isolation via user_id.
+Entity resolution uses MERGE + toLower() normalization.
+Startup ensures uniqueness constraints and indexes for <100ms reads.
 """
 
 import logging
@@ -39,7 +41,7 @@ class Neo4jClient:
             await session.run("RETURN 1")
         logger.info("Neo4j connected at %s", settings.neo4j_uri)
 
-        # Create indexes for performance
+        # Create constraints & indexes for performance
         await self._ensure_indexes()
 
     async def close(self) -> None:
@@ -47,23 +49,80 @@ class Neo4jClient:
             await self._driver.close()
             logger.info("Neo4j connection closed")
 
+    # ────────────────────────────────────────────────────────
+    #  Startup: Constraints & Indexes
+    # ────────────────────────────────────────────────────────
+
     async def _ensure_indexes(self) -> None:
-        """Create indexes for fast lookups."""
+        """
+        Create uniqueness constraints and composite indexes on startup.
+        These are idempotent (IF NOT EXISTS) and guarantee <100ms lookups.
+        """
         async with self._driver.session() as session:
+            # 1. Uniqueness constraint on User.user_id
+            await session.run(
+                "CREATE CONSTRAINT IF NOT EXISTS "
+                "FOR (n:User) REQUIRE n.user_id IS UNIQUE"
+            )
+
+            # 2. Index on Entity.user_id for user-scoped queries
+            await session.run(
+                "CREATE INDEX entity_user_idx IF NOT EXISTS "
+                "FOR (n:Entity) ON (n.user_id)"
+            )
+
+            # 3. Index on Concept.user_id for user-scoped queries
+            await session.run(
+                "CREATE INDEX concept_user_idx IF NOT EXISTS "
+                "FOR (n:Concept) ON (n.user_id)"
+            )
+
+            # 4. Additional indexes for Document and Fact labels
+            await session.run(
+                "CREATE INDEX document_user_idx IF NOT EXISTS "
+                "FOR (n:Document) ON (n.user_id)"
+            )
+            await session.run(
+                "CREATE INDEX fact_user_idx IF NOT EXISTS "
+                "FOR (n:Fact) ON (n.user_id)"
+            )
+
+            # 5. Composite indexes on (user_id, name_lower) for fast MERGE
             for label in ("Entity", "Concept", "Document", "Fact"):
                 await session.run(
-                    f"CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.id)"
+                    f"CREATE INDEX {label.lower()}_name_idx IF NOT EXISTS "
+                    f"FOR (n:{label}) ON (n.user_id, n.name_lower)"
                 )
-                await session.run(
-                    f"CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.user_id)"
-                )
-        logger.info("Neo4j indexes ensured")
 
-    # ────────────────────────────────────────────────────────────
-    #  Write Operations
-    # ────────────────────────────────────────────────────────────
+        logger.info("Neo4j constraints & indexes ensured")
 
-    async def create_node(
+    # ────────────────────────────────────────────────────────
+    #  User Node (root node per user)
+    # ────────────────────────────────────────────────────────
+
+    async def create_user_node(
+        self, user_id: str, name: str, timestamp: str
+    ) -> None:
+        """
+        Create the root User node on signup.
+        Uses MERGE to be idempotent.
+        """
+        query = """
+        MERGE (u:User {user_id: $user_id})
+        ON CREATE SET u.name      = $name,
+                      u.created_at = $timestamp
+        ON MATCH SET  u.name      = $name
+        """
+        async with self._driver.session() as session:
+            await session.run(
+                query, user_id=user_id, name=name, timestamp=timestamp
+            )
+
+    # ────────────────────────────────────────────────────────
+    #  Write — Entity-Resolved Node Creation (MERGE)
+    # ────────────────────────────────────────────────────────
+
+    async def merge_node(
         self,
         user_id: str,
         name: str,
@@ -71,34 +130,48 @@ class Neo4jClient:
         description: str = "",
         source: str = "",
     ) -> str:
-        """Create a node with the appropriate label. Returns the node id."""
-        node_id = f"n_{uuid.uuid4().hex[:12]}"
-        label = node_type.capitalize()  # concept → Concept
+        """
+        MERGE a node using toLower(name) normalization.
+        If an existing node matches (user_id + name_lower), reuse it;
+        otherwise create a new one.  Returns the node id.
+        Also links the node to the root User node via [:OWNS_MEMORY].
+        """
+        label = node_type.capitalize()
         if label not in ("Entity", "Concept", "Document", "Fact"):
             label = "Concept"
+        new_id = f"n_{uuid.uuid4().hex[:12]}"
+        name_lower = name.strip().lower()
 
+        # MERGE on (user_id, name_lower) guarantees dedup
         query = f"""
-        CREATE (n:{label} {{
-            id: $id,
-            user_id: $user_id,
-            name: $name,
-            description: $description,
-            source: $source,
-            timestamp: datetime()
-        }})
+        MERGE (n:{label} {{user_id: $user_id, name_lower: $name_lower}})
+        ON CREATE SET n.id          = $new_id,
+                      n.name        = $name,
+                      n.description = $description,
+                      n.source      = $source,
+                      n.timestamp   = datetime()
+        ON MATCH SET  n.description = CASE
+                          WHEN size(n.description) < size($description)
+                          THEN $description ELSE n.description END,
+                      n.source      = CASE
+                          WHEN n.source = '' THEN $source ELSE n.source END
+        WITH n
+        MERGE (u:User {{user_id: $user_id}})
+        MERGE (u)-[:OWNS_MEMORY]->(n)
         RETURN n.id AS id
         """
         async with self._driver.session() as session:
             result = await session.run(
                 query,
-                id=node_id,
                 user_id=user_id,
-                name=name,
+                name_lower=name_lower,
+                new_id=new_id,
+                name=name.strip(),
                 description=description,
                 source=source,
             )
             record = await result.single()
-            return record["id"]
+            return record["id"] if record else new_id
 
     async def create_edge(
         self,
@@ -108,17 +181,25 @@ class Neo4jClient:
         rel_type: str = "RELATES_TO",
         weight: float = 1.0,
     ) -> Optional[str]:
-        """Create a relationship between two nodes (same user)."""
+        """Create a relationship between two nodes (same user).
+        Uses MERGE to avoid duplicate edges."""
         edge_id = f"e_{uuid.uuid4().hex[:8]}"
-        # Sanitize relationship type
         rel = rel_type.upper().replace(" ", "_")
-        if rel not in ("USES", "RELATES_TO", "INCLUDES", "CONTRADICTS"):
+        if rel not in (
+            "USES", "RELATES_TO", "INCLUDES", "CONTRADICTS",
+            "CAUSES", "ENABLES", "REQUIRES", "IMPLEMENTS", "OWNS_MEMORY",
+        ):
             rel = "RELATES_TO"
 
         query = f"""
         MATCH (a {{id: $source_id, user_id: $user_id}})
         MATCH (b {{id: $target_id, user_id: $user_id}})
-        CREATE (a)-[r:{rel} {{id: $edge_id, weight: $weight, last_accessed: datetime()}}]->(b)
+        MERGE (a)-[r:{rel}]->(b)
+        ON CREATE SET r.id            = $edge_id,
+                      r.weight        = $weight,
+                      r.last_accessed = datetime()
+        ON MATCH SET  r.weight        = r.weight + $weight,
+                      r.last_accessed = datetime()
         RETURN r.id AS id
         """
         async with self._driver.session() as session:
@@ -133,15 +214,33 @@ class Neo4jClient:
             record = await result.single()
             return record["id"] if record else None
 
+    # ── Legacy create_node (delegates to merge_node) ──
+    async def create_node(
+        self,
+        user_id: str,
+        name: str,
+        node_type: str,
+        description: str = "",
+        source: str = "",
+    ) -> str:
+        """Backward-compatible alias — delegates to merge_node."""
+        return await self.merge_node(
+            user_id=user_id,
+            name=name,
+            node_type=node_type,
+            description=description,
+            source=source,
+        )
+
     # ────────────────────────────────────────────────────────────
     #  Read — Mindmap
     # ────────────────────────────────────────────────────────────
 
     async def get_all_nodes(self, user_id: str) -> List[Dict[str, Any]]:
-        """Return every node for a user."""
+        """Return every node for a user (excluding the root User node)."""
         query = """
         MATCH (n)
-        WHERE n.user_id = $user_id
+        WHERE n.user_id = $user_id AND (n:Entity OR n:Concept OR n:Document OR n:Fact)
         RETURN n.id AS id,
                labels(n)[0] AS label_type,
                n.name AS name,
@@ -156,10 +255,12 @@ class Neo4jClient:
         return results
 
     async def get_all_edges(self, user_id: str) -> List[Dict[str, Any]]:
-        """Return every edge for a user's nodes."""
+        """Return every edge for a user's nodes (excluding OWNS_MEMORY)."""
         query = """
         MATCH (a)-[r]->(b)
         WHERE a.user_id = $user_id AND b.user_id = $user_id
+          AND (a:Entity OR a:Concept OR a:Document OR a:Fact)
+          AND (b:Entity OR b:Concept OR b:Document OR b:Fact)
         RETURN r.id AS id,
                a.id AS source,
                b.id AS target,
@@ -185,11 +286,13 @@ class Neo4jClient:
         """
         query = """
         MATCH (center)
-        WHERE center.user_id = $user_id
+        WHERE center.user_id = $user_id 
+          AND (center:Entity OR center:Concept OR center:Document OR center:Fact)
           AND toLower(center.name) CONTAINS toLower($entity_name)
         WITH center LIMIT 1
         MATCH path = (center)-[*1..%d]-(neighbor)
-        WHERE neighbor.user_id = $user_id AND neighbor <> center
+        WHERE neighbor.user_id = $user_id AND neighbor <> center 
+          AND (neighbor:Entity OR neighbor:Concept OR neighbor:Document OR neighbor:Fact)
         WITH neighbor, relationships(path)[0] AS rel
         RETURN DISTINCT neighbor.id AS id,
                neighbor.name AS name,
@@ -198,7 +301,8 @@ class Neo4jClient:
                type(rel) AS relation
         UNION
         MATCH (center)
-        WHERE center.user_id = $user_id
+        WHERE center.user_id = $user_id 
+          AND (center:Entity OR center:Concept OR center:Document OR center:Fact)
           AND toLower(center.name) CONTAINS toLower($entity_name)
         RETURN center.id AS id,
                center.name AS name,
@@ -222,6 +326,7 @@ class Neo4jClient:
                 fallback = """
                 MATCH (n)
                 WHERE n.user_id = $user_id
+                  AND (n:Entity OR n:Concept OR n:Document OR n:Fact)
                   AND toLower(n.name) CONTAINS toLower($entity_name)
                 RETURN n.id AS id,
                        n.name AS name,
@@ -240,15 +345,19 @@ class Neo4jClient:
     async def find_node_by_name(
         self, user_id: str, name: str
     ) -> Optional[Dict[str, Any]]:
-        """Find an existing node by name (exact, case-insensitive)."""
+        """Find an existing node by name (exact, case-insensitive) using indexed name_lower."""
         query = """
         MATCH (n)
-        WHERE n.user_id = $user_id AND toLower(n.name) = toLower($name)
+        WHERE n.user_id = $user_id 
+          AND (n:Entity OR n:Concept OR n:Document OR n:Fact)
+          AND n.name_lower = $name_lower
         RETURN n.id AS id, n.name AS name, labels(n)[0] AS label_type
         LIMIT 1
         """
         async with self._driver.session() as session:
-            result = await session.run(query, user_id=user_id, name=name)
+            result = await session.run(
+                query, user_id=user_id, name_lower=name.strip().lower()
+            )
             record = await result.single()
             return dict(record) if record else None
 

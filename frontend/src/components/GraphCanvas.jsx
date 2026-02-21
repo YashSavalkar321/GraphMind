@@ -95,9 +95,10 @@ const nodeTypes = {
 
 /* ── Inner component (has access to useReactFlow) ── */
 function GraphCanvasInner() {
-  const { getMindmapForCurrentUser, selectedNode, setSelectedNode, getCurrentUser } = useAppStore();
-  const currentUser = getCurrentUser();
-  const graphData = getMindmapForCurrentUser();
+  const graphData = useAppStore((s) => s.getMindmapForCurrentUser());
+  const currentUser = useAppStore((s) => s.getCurrentUser());
+  const selectedNode = useAppStore((s) => s.selectedNode);
+  const setSelectedNode = useAppStore((s) => s.setSelectedNode);
   const { fitView } = useReactFlow();
 
   // Hook: citation-click → pan + glow
@@ -106,17 +107,17 @@ function GraphCanvasInner() {
   /* ── Build React Flow nodes/edges from store data ── */
   const initialNodes = useMemo(
     () =>
-      graphData.nodes.map((n) => ({
+      (graphData?.nodes || []).map((n) => ({
         ...n,
         type: n.type || 'concept',
         selected: n.id === selectedNode,
       })),
-    [graphData.nodes, selectedNode],
+    [graphData?.nodes],
   );
 
   const initialEdges = useMemo(
     () =>
-      graphData.edges.map((e) => ({
+      (graphData?.edges || []).map((e) => ({
         ...e,
         markerEnd: { type: MarkerType.ArrowClosed, color: e.style?.stroke || '#6366f1' },
         labelStyle: { fill: '#a5b4fc', fontSize: 10, fontWeight: 600 },
@@ -124,7 +125,7 @@ function GraphCanvasInner() {
         labelBgPadding: [6, 3],
         labelBgBorderRadius: 6,
       })),
-    [graphData.edges],
+    [graphData?.edges],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -135,6 +136,16 @@ function GraphCanvasInner() {
     setNodes(initialNodes);
     setEdges(initialEdges);
   }, [initialNodes, initialEdges, setNodes, setEdges]);
+
+  /* Sync selected state without resetting positions */
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        selected: n.id === selectedNode,
+      }))
+    );
+  }, [selectedNode, setNodes]);
 
   /* ── Resize listener → fitView (spec constraint) ── */
   useEffect(() => {
@@ -156,7 +167,7 @@ function GraphCanvasInner() {
     [selectedNode, setSelectedNode],
   );
 
-  const selectedNodeData = graphData.nodes.find((n) => n.id === selectedNode);
+  const selectedNodeData = (graphData?.nodes || []).find((n) => n.id === selectedNode);
 
   return (
     <div className="flex flex-col h-full bg-gradient-subtle">
@@ -171,15 +182,15 @@ function GraphCanvasInner() {
             <p className="text-[10px] text-text-secondary mt-0.5 truncate">
               <span className="inline-flex items-center gap-1">
                 <CircleDot className="w-3 h-3" />
-                {graphData.nodes.length} nodes
+                {graphData?.nodes?.length || 0} nodes
               </span>
               <span className="mx-1.5 text-text-muted/30">&bull;</span>
               <span className="inline-flex items-center gap-1">
                 <GitBranch className="w-3 h-3" />
-                {graphData.edges.length} edges
+                {graphData?.edges?.length || 0} edges
               </span>
               <span className="mx-1.5 text-text-muted/30">&bull;</span>
-              <span className="text-primary-light font-medium">{currentUser.name}</span>
+              <span className="text-primary-light font-medium">{currentUser?.name || 'Guest'}</span>
             </p>
           </div>
         </div>
@@ -220,7 +231,7 @@ function GraphCanvasInner() {
         </ReactFlow>
 
         {/* Hint overlay */}
-        {!selectedNodeData && graphData.nodes.length > 0 && (
+        {!selectedNodeData && (graphData?.nodes?.length || 0) > 0 && (
           <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-2 rounded-xl glass text-[11px] text-text-muted/50 animate-fade-in pointer-events-none">
             <MousePointerClick className="w-3.5 h-3.5" />
             Click a node to inspect

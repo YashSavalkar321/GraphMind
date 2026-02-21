@@ -13,17 +13,15 @@ import {
 import useAppStore from '../store/useAppStore';
 
 export default function ChatSidebar() {
-  const {
-    sidebarOpen,
-    toggleSidebar,
-    chatHistory,
-    activeChatId,
-    newChat,
-    switchChat,
-    pinChat,
-    unpinChat,
-    deleteChat,
-  } = useAppStore();
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar);
+  const chatHistory = useAppStore((s) => s.chatHistory);
+  const activeChatId = useAppStore((s) => s.activeChatId);
+  const newChat = useAppStore((s) => s.newChat);
+  const switchChat = useAppStore((s) => s.switchChat);
+  const pinChat = useAppStore((s) => s.pinChat);
+  const unpinChat = useAppStore((s) => s.unpinChat);
+  const deleteChat = useAppStore((s) => s.deleteChat);
 
   const [search, setSearch] = useState('');
   const [menuOpenId, setMenuOpenId] = useState(null);

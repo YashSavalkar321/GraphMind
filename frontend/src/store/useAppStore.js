@@ -10,7 +10,131 @@ import {
 // ── API base path (Vite proxy: /api → http://localhost:8000) ──
 const API = '/api';
 
+// ── JWT helpers ──
+const getStoredAuth = () => {
+  try {
+    const token = localStorage.getItem('gm_token');
+    const user = JSON.parse(localStorage.getItem('gm_user') || 'null');
+    if (user && !user.id) {
+      user.id = user.user_id;
+      user.avatar = user.name?.[0]?.toUpperCase() || 'U';
+      user.color = '#6366f1';
+    }
+    return token && user ? { token, user } : null;
+  } catch {
+    return null;
+  }
+};
+
+const storeAuth = (token, user) => {
+  localStorage.setItem('gm_token', token);
+  localStorage.setItem('gm_user', JSON.stringify(user));
+};
+
+const clearAuth = () => {
+  localStorage.removeItem('gm_token');
+  localStorage.removeItem('gm_user');
+};
+
+const authHeaders = () => {
+  const token = localStorage.getItem('gm_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const storedAuth = getStoredAuth();
+
+const EMPTY_MINDMAP = { nodes: [], edges: [] };
+const EMPTY_DOCS = [];
+
 const useAppStore = create((set, get) => ({
+  // ──────────────── Auth state ────────────────
+  isAuthenticated: !!storedAuth,
+  authUser: storedAuth?.user || null,
+  authLoading: false,
+  authError: null,
+
+  signup: async (name, email, password) => {
+    set({ authLoading: true, authError: null });
+    try {
+      const res = await fetch(`${API}/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Signup failed' }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const user = { 
+        user_id: data.user_id, 
+        name: data.name, 
+        email: data.email,
+        id: data.user_id,
+        avatar: data.name[0]?.toUpperCase() || 'U',
+        color: '#6366f1'
+      };
+      storeAuth(data.token, user);
+      set({
+        isAuthenticated: true,
+        authUser: user,
+        currentUserId: data.user_id,
+        authLoading: false,
+      });
+      get().fetchMindmap();
+    } catch (err) {
+      set({ authLoading: false, authError: err.message });
+    }
+  },
+
+  login: async (email, password) => {
+    set({ authLoading: true, authError: null });
+    try {
+      const res = await fetch(`${API}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Login failed' }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const user = { 
+        user_id: data.user_id, 
+        name: data.name, 
+        email: data.email,
+        id: data.user_id,
+        avatar: data.name[0]?.toUpperCase() || 'U',
+        color: '#6366f1'
+      };
+      storeAuth(data.token, user);
+      set({
+        isAuthenticated: true,
+        authUser: user,
+        currentUserId: data.user_id,
+        authLoading: false,
+      });
+      get().fetchMindmap();
+    } catch (err) {
+      set({ authLoading: false, authError: err.message });
+    }
+  },
+
+  logout: () => {
+    clearAuth();
+    set({
+      isAuthenticated: false,
+      authUser: null,
+      currentUserId: USERS[0].id,
+      messages: [],
+      chatHistory: [],
+      activeChatId: null,
+      selectedNode: null,
+      highlightedNodeId: null,
+    });
+  },
+
   // ──────────────── Sidebar state ────────────────
   sidebarOpen: false,
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
@@ -94,10 +218,13 @@ const useAppStore = create((set, get) => ({
 
   // ──────────────── User state ────────────────
   users: USERS,
-  currentUserId: USERS[0].id,
+  currentUserId: storedAuth?.user?.user_id || USERS[0].id,
 
   getCurrentUser: () => {
-    const { users, currentUserId } = get();
+    const { users, currentUserId, authUser, isAuthenticated } = get();
+    if (isAuthenticated && authUser) {
+      return authUser;
+    }
     return users.find((u) => u.id === currentUserId) || USERS[0];
   },
 
@@ -118,7 +245,7 @@ const useAppStore = create((set, get) => ({
 
   getDocsForCurrentUser: () => {
     const { ingestedDocs, currentUserId } = get();
-    return ingestedDocs[currentUserId] || [];
+    return ingestedDocs[currentUserId] || EMPTY_DOCS;
   },
 
   // ──────────────── Mindmap state ────────────────
@@ -126,7 +253,10 @@ const useAppStore = create((set, get) => ({
 
   getMindmapForCurrentUser: () => {
     const { mindmapData, currentUserId } = get();
-    return mindmapData[currentUserId] || { nodes: [], edges: [] };
+    const data = mindmapData[currentUserId];
+    return data && Array.isArray(data.nodes) && Array.isArray(data.edges) 
+      ? data 
+      : EMPTY_MINDMAP;
   },
 
   /**
@@ -135,8 +265,11 @@ const useAppStore = create((set, get) => ({
    */
   fetchMindmap: async () => {
     const { currentUserId } = get();
+    if (!currentUserId) return;
     try {
-      const res = await fetch(`${API}/memory/mindmap?user_id=${currentUserId}`);
+      const res = await fetch(`${API}/memory/mindmap?user_id=${currentUserId}`, {
+        headers: { ...authHeaders() },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       set((s) => ({ mindmapData: { ...s.mindmapData, [currentUserId]: data } }));
@@ -211,7 +344,7 @@ const useAppStore = create((set, get) => ({
     try {
       const res = await fetch(`${API}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ user_id: currentUserId, query }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -260,7 +393,7 @@ const useAppStore = create((set, get) => ({
     try {
       const res = await fetch(`${API}/memory/ingest`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ user_id: currentUserId, text: content, source_type: sourceType, title }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

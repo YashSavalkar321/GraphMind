@@ -9,9 +9,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import ingest, chat, mindmap
+from app.routers import ingest, chat, mindmap, auth
 from app.services.neo4j_client import neo4j_client
 from app.services.vector_client import vector_client
+from app.services.redis_client import redis_client
 from app.services.embeddings import get_model
 
 # ── Logging ──
@@ -39,6 +40,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("⚠️  Qdrant unavailable: %s — vector search will fail", e)
 
+    # Connect to Redis
+    try:
+        await redis_client.connect()
+    except Exception as e:
+        logger.error("⚠️  Redis unavailable: %s — caching will be disabled", e)
+
     # Pre-warm embedding model
     logger.info("Loading embedding model (first-time download may take a moment)…")
     try:
@@ -53,6 +60,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down…")
     await neo4j_client.close()
     await vector_client.close()
+    await redis_client.close()
 
 
 # ── App ──
@@ -73,6 +81,7 @@ app.add_middleware(
 )
 
 # ── Routers ──
+app.include_router(auth.router)
 app.include_router(ingest.router)
 app.include_router(chat.router)
 app.include_router(mindmap.router)

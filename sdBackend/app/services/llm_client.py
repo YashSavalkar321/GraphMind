@@ -1,6 +1,24 @@
 """
 GraphMind — LLM client (Ollama / Groq / Gemini).
 Strict JSON extraction + chat generation. NO LangChain.
+
+Environment example (put in .env):
+LLM_PROVIDER=groq
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-1.5-flash
+GROQ_API_KEY=...
+GROQ_MODEL=llama-3.3-70b-versatile
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=llama3.1
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=...
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+QDRANT_COLLECTION=graphmind_chunks
+EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+LOG_LEVEL=info
 """
 
 import json
@@ -125,17 +143,32 @@ async def _call_gemini(
             "maxOutputTokens": max_tokens,
         },
     }
+    headers = {"Content-Type": "application/json"}
 
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(url, json=payload)
-        resp.raise_for_status()
+        try:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            body = e.response.text if e.response is not None else "<no body>"
+            logger.error(
+                "LLM request failed: status=%s url=%s body=%s",
+                e.response.status_code if e.response else "<no status>",
+                url,
+                body,
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error("LLM request error: %s", str(e))
+            raise
         data = resp.json()
+        # Google Gemini returns candidates -> content -> parts -> text
         return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
 # ═══════════════════════════════════════════════════════════
 #  JSON extraction helper
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 def parse_json_from_llm(raw: str) -> Optional[Dict[str, Any]]:
     """

@@ -3,8 +3,36 @@ GraphMind — Pydantic request / response models.
 Matches the frontend API contract exactly.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
+
+
+# ═══════════════════════════════════════════════
+#  Auth
+# ═══════════════════════════════════════════════
+class SignupRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=6)
+
+
+class SignupResponse(BaseModel):
+    user_id: str
+    name: str
+    email: str
+    token: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    user_id: str
+    name: str
+    email: str
+    token: str
 
 
 # ═══════════════════════════════════════════════
@@ -36,9 +64,9 @@ class NodePosition(BaseModel):
 
 class NodeData(BaseModel):
     label: str
-    description: str = ""
+    description: Optional[str] = ""
     nodeType: str  # concept | entity | document | fact
-    docSource: str = ""
+    docSource: Optional[str] = ""
 
 
 class MindmapNode(BaseModel):

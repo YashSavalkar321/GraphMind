@@ -2,7 +2,8 @@ import { Bookmark, ChevronRight } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 
 export default function CitationBadge({ citations }) {
-  const { highlightNode, setActiveView } = useAppStore();
+  const highlightNode = useAppStore((s) => s.highlightNode);
+  const setActiveView = useAppStore((s) => s.setActiveView);
 
   if (!citations || citations.length === 0) {
     return (

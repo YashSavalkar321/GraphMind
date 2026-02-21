@@ -1,8 +1,10 @@
 """
 GraphMind — GET /memory/mindmap
 Returns all nodes & edges for a user, formatted for the React Flow frontend.
+Redis-cached per user with automatic invalidation on graph writes.
 """
 
+import json
 import logging
 import math
 from typing import List
@@ -17,6 +19,7 @@ from app.models import (
     NodePosition,
 )
 from app.services.neo4j_client import neo4j_client, NODE_COLORS
+from app.services.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,7 @@ EDGE_COLORS = {
     "ENABLES": "#10b981",
     "REQUIRES": "#f59e0b",
     "IMPLEMENTS": "#0ea5e9",
+    "OWNS_MEMORY": "#6366f1",
 }
 
 
@@ -39,8 +43,17 @@ EDGE_COLORS = {
 async def get_mindmap(user_id: str = Query(..., description="User ID")):
     """
     Fetch all nodes & edges for a user from Neo4j.
-    Auto-generates layout positions using a force-directed-like algorithm.
+    Results are cached in Redis (key: mindmap:{user_id}).
     """
+
+    # ── Try Redis cache first ──
+    cached = await redis_client.get_mindmap(user_id)
+    if cached:
+        logger.debug("Mindmap cache HIT for user %s", user_id)
+        return MindmapResponse(**json.loads(cached))
+
+    logger.debug("Mindmap cache MISS for user %s", user_id)
+
     raw_nodes = await neo4j_client.get_all_nodes(user_id)
     raw_edges = await neo4j_client.get_all_edges(user_id)
 
@@ -63,9 +76,9 @@ async def get_mindmap(user_id: str = Query(..., description="User ID")):
                 type=node_type,
                 data=NodeData(
                     label=n.get("name", "?"),
-                    description=n.get("description", ""),
+                    description=n.get("description") or "",
                     nodeType=node_type,
-                    docSource=n.get("source", ""),
+                    docSource=n.get("source") or "",
                 ),
                 position=NodePosition(x=pos["x"], y=pos["y"]),
             )
@@ -91,7 +104,16 @@ async def get_mindmap(user_id: str = Query(..., description="User ID")):
         )
 
     logger.info("Mindmap: %d nodes, %d edges for user %s", len(nodes), len(edges), user_id)
-    return MindmapResponse(nodes=nodes, edges=edges)
+
+    response = MindmapResponse(nodes=nodes, edges=edges)
+
+    # ── Write to Redis cache ──
+    try:
+        await redis_client.set_mindmap(user_id, response.model_dump_json())
+    except Exception as e:
+        logger.warning("Failed to cache mindmap: %s", e)
+
+    return response
 
 
 def _compute_layout(

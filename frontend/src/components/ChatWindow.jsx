@@ -5,13 +5,16 @@ import PerformanceTimer from './PerformanceTimer';
 import CitationBadge from './CitationBadge';
 
 export default function ChatWindow() {
-  const { messages, isTyping, sendMessage, getCurrentUser } = useAppStore();
+  const messages = useAppStore((s) => s.messages);
+  const isTyping = useAppStore((s) => s.isTyping);
+  const sendMessage = useAppStore((s) => s.sendMessage);
+  const currentUser = useAppStore((s) => s.getCurrentUser());
+  
   const [input, setInput] = useState('');
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const messagesEndRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const inputRef = useRef(null);
-  const currentUser = getCurrentUser();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -19,7 +22,7 @@ export default function ChatWindow() {
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, [currentUser.id]);
+  }, [currentUser?.id]);
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -71,7 +74,7 @@ export default function ChatWindow() {
           <div className="min-w-0">
             <h2 className="text-base font-bold text-text-primary tracking-tight">Chat</h2>
             <p className="text-[11px] text-text-secondary mt-0.5 truncate">
-              Memory-grounded AI &bull; <span className="text-primary-light font-medium">{currentUser.name}</span>
+              Memory-grounded AI &bull; <span className="text-primary-light font-medium">{currentUser?.name || 'Guest'}</span>
             </p>
           </div>
         </div>
@@ -104,7 +107,7 @@ export default function ChatWindow() {
                 Try asking
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {getSuggestions(currentUser.id).map((s, i) => (
+                {getSuggestions(currentUser?.id).map((s, i) => (
                   <button
                     key={i}
                     onClick={() => {
@@ -178,9 +181,9 @@ export default function ChatWindow() {
             {msg.role === 'user' && (
               <div
                 className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center mt-1 text-sm font-bold text-white shadow-md ring-2 ring-surface"
-                style={{ backgroundColor: currentUser.color }}
+                style={{ backgroundColor: currentUser?.color || '#6366f1' }}
               >
-                {currentUser.avatar}
+                {currentUser?.avatar || 'U'}
               </div>
             )}
           </div>

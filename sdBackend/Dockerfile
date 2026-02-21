@@ -4,7 +4,7 @@ WORKDIR /code
 
 # System deps for fastembed ONNX
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential curl && \
+    build-essential curl ca-certificates netcat && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Pre-download the embedding model at build time so startup is instant
-RUN py -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
 
 EXPOSE 8000
 

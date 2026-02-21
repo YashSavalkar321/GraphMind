@@ -3,8 +3,12 @@ import { X, Upload, FileText, Loader2, CheckCircle2, AlertCircle, FileUp } from 
 import useAppStore from '../store/useAppStore';
 
 export default function IngestModal() {
-  const { isIngestModalOpen, closeIngestModal, ingestDocument, isIngesting, getCurrentUser } =
-    useAppStore();
+  const isIngestModalOpen = useAppStore((s) => s.isIngestModalOpen);
+  const closeIngestModal = useAppStore((s) => s.closeIngestModal);
+  const ingestDocument = useAppStore((s) => s.ingestDocument);
+  const isIngesting = useAppStore((s) => s.isIngesting);
+  const currentUser = useAppStore((s) => s.getCurrentUser());
+  
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [sourceType, setSourceType] = useState('text');
@@ -12,7 +16,6 @@ export default function IngestModal() {
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
-  const currentUser = getCurrentUser();
 
   if (!isIngestModalOpen) return null;
 
@@ -94,7 +97,7 @@ export default function IngestModal() {
               <h3 className="text-base font-bold text-text-primary">Ingest Document</h3>
               <p className="text-[11px] text-text-secondary mt-0.5 truncate">
                 Add knowledge to{' '}
-                <span className="text-primary-light font-medium">{currentUser.name}</span>'s memory
+                <span className="text-primary-light font-medium">{currentUser?.name || 'Guest'}</span>'s memory
               </p>
             </div>
           </div>
