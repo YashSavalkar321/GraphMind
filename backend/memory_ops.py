@@ -14,6 +14,7 @@ Performance Architecture:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import re
@@ -52,51 +53,6 @@ _STOP_WORDS = frozenset({
     "want", "with", "know", "remember", "think", "need", "like",
 })
 
-# ── Category definitions ──────────────────────────────────────
-
-VALID_CATEGORIES = frozenset({
-    "Health", "Finance", "Learning", "Work", "Travel", "Personal", "General"
-})
-
-# Keyword vocabularies for fast category detection (zero LLM calls)
-CATEGORY_KEYWORDS: Dict[str, frozenset] = {
-    "Health": frozenset({
-        "symptom", "pain", "medication", "medicine", "health", "sick",
-        "disease", "condition", "trigger", "diet", "exercise", "sleep",
-        "anxiety", "stress", "doctor", "hospital", "treatment", "allergy",
-        "headache", "fatigue", "nausea", "blood", "pressure", "diabetes",
-        "therapy", "mental", "vitamins", "dosage", "injury", "fever",
-    }),
-    "Finance": frozenset({
-        "budget", "money", "expense", "cost", "invest", "saving", "income",
-        "salary", "loan", "debt", "financial", "spend", "bank", "tax",
-        "insurance", "portfolio", "rent", "bill", "payment", "subscription",
-        "stock", "crypto", "savings", "account", "mortgage", "fund",
-    }),
-    "Learning": frozenset({
-        "learn", "study", "course", "skill", "topic", "tutorial",
-        "prerequisite", "resource", "practice", "knowledge", "lecture",
-        "homework", "exam", "read", "book", "roadmap", "programming",
-        "math", "science", "language", "certificate", "degree",
-    }),
-    "Work": frozenset({
-        "project", "code", "engineering", "review", "team", "standard",
-        "pattern", "tool", "framework", "api", "bug", "deploy",
-        "architecture", "meeting", "manager", "deadline", "sprint",
-        "commit", "repository", "production", "backend", "frontend",
-    }),
-    "Travel": frozenset({
-        "travel", "trip", "destination", "hotel", "flight", "itinerary",
-        "visit", "city", "country", "vacation", "holiday", "tour",
-        "passport", "visa", "accommodation", "restaurant", "transport",
-    }),
-    "Personal": frozenset({
-        "hobby", "preference", "like", "dislike", "habit", "relationship",
-        "friend", "family", "birthday", "routine", "interest", "value",
-        "personality", "dream", "feeling", "emotion", "lifestyle",
-    }),
-}
-
 
 def _uuid() -> str:
     return str(uuid.uuid4())
@@ -131,24 +87,6 @@ def extract_keywords_fast(query: str) -> List[str]:
     keywords = list(dict.fromkeys(phrases + bigrams + words))
 
     return keywords[:15]  # Cap at 15 keywords
-
-
-# ── Category-Aware Query Classifier ────────────────────────────
-
-def _detect_query_category(keywords: List[str]) -> Optional[str]:
-    """Match query keywords to the most relevant memory category.
-
-    Returns the best-matching category name, or None if no confident match.
-    Used to focus retrieval on a specific category for 1.4× relevance boost.
-    Runs in <1ms — no LLM call.
-    """
-    kw_set = {k.lower() for k in keywords}
-    best_cat, best_score = None, 0
-    for cat, cat_kws in CATEGORY_KEYWORDS.items():
-        score = len(kw_set & cat_kws)
-        if score > best_score:
-            best_score, best_cat = score, cat
-    return best_cat if best_score > 0 else None
 
 
 # ── Relevance Scoring Engine ──────────────────────────────────
@@ -204,26 +142,32 @@ def _compute_relevance(
     return keyword_score * confidence_factor * recency_factor
 
 
-# ── Graph Cache (in-memory, per-user) ──────────────────────────
+# ── Graph Cache (in-memory, per-user, O(1) eviction) ───────────
 
-_graph_cache: Dict[str, Tuple[float, Any]] = {}
+from collections import OrderedDict
+
+_graph_cache: OrderedDict[str, Tuple[float, Any]] = OrderedDict()
+_CACHE_MAX_SIZE = 200
 
 
 def _get_cached_or_fetch(user_id: str, query_key: str, fetcher):
-    """LRU-style cache with TTL. Avoids duplicate Neo4j calls."""
+    """LRU-style cache with TTL and O(1) eviction."""
     cache_key = f"{user_id}:{query_key}"
     now = time.time()
     if cache_key in _graph_cache:
         ts, data = _graph_cache[cache_key]
         if now - ts < _CACHE_TTL_SECONDS:
+            # Move to end (most recently used)
+            _graph_cache.move_to_end(cache_key)
             return data
+        else:
+            # Expired — remove stale entry
+            del _graph_cache[cache_key]
     data = fetcher()
     _graph_cache[cache_key] = (now, data)
-    # Evict old entries (keep cache bounded)
-    if len(_graph_cache) > 200:
-        oldest = sorted(_graph_cache, key=lambda k: _graph_cache[k][0])[:50]
-        for k in oldest:
-            del _graph_cache[k]
+    # Evict oldest entries if over capacity (O(1) per pop)
+    while len(_graph_cache) > _CACHE_MAX_SIZE:
+        _graph_cache.popitem(last=False)
     return data
 
 
@@ -261,28 +205,21 @@ async def ingest_to_graph(user_id: str, text: str) -> Dict[str, Any]:
     for ent in entities:
         name = ent.get("name", "").strip()
         etype = ent.get("type", "Unknown").strip()
-        category = ent.get("category", "General").strip()
-        if category not in VALID_CATEGORIES:
-            category = "General"
         if name:
             entity_params.append({
-                "name": name, "type": etype, "category": category,
+                "name": name, "type": etype,
                 "mid": _uuid(), "now": now,
             })
 
     if entity_params:
         db.execute_write(
             "UNWIND $entities AS ent "
-            "MERGE (u:User {user_id: $uid}) "
-            "MERGE (cat:Category {name: ent.category, user_id: $uid}) "
-            "  ON CREATE SET cat.created_at = ent.now "
-            "MERGE (u)-[:HAS_CATEGORY]->(cat) "
+            "MATCH (u:User {user_id: $uid}) "
             "MERGE (e:Entity {name: ent.name, user_id: $uid}) "
-            "  ON CREATE SET e.type = ent.type, e.category = ent.category, "
-            "               e.memory_id = ent.mid, e.created_at = ent.now, "
-            "               e.last_accessed = ent.now "
-            "  ON MATCH SET e.last_accessed = ent.now, e.category = ent.category "
-            "MERGE (cat)-[:CONTAINS]->(e)",
+            "ON CREATE SET e.type = ent.type, e.memory_id = ent.mid, "
+            "             e.created_at = ent.now, e.last_accessed = ent.now "
+            "ON MATCH SET e.last_accessed = ent.now "
+            "MERGE (u)-[:KNOWS]->(e)",
             {"uid": user_id, "entities": entity_params},
         )
 
@@ -304,7 +241,9 @@ async def ingest_to_graph(user_id: str, text: str) -> Dict[str, Any]:
     if fact_params:
         db.execute_write(
             "UNWIND $facts AS f "
+            "MATCH (u:User {user_id: $uid}) "
             "MERGE (e:Entity {name: f.ename, user_id: $uid}) "
+            "MERGE (u)-[:KNOWS]->(e) "
             "MERGE (fct:Fact {content: f.content, user_id: $uid}) "
             "ON CREATE SET fct.confidence = f.conf, fct.last_accessed = f.now, "
             "             fct.memory_id = f.mid, fct.created_at = f.now, "
@@ -330,8 +269,11 @@ async def ingest_to_graph(user_id: str, text: str) -> Dict[str, Any]:
     if rel_params:
         db.execute_write(
             "UNWIND $rels AS r "
+            "MATCH (u:User {user_id: $uid}) "
             "MERGE (s:Entity {name: r.source, user_id: $uid}) "
             "MERGE (t:Entity {name: r.target, user_id: $uid}) "
+            "MERGE (u)-[:KNOWS]->(s) "
+            "MERGE (u)-[:KNOWS]->(t) "
             "MERGE (s)-[rel:RELATED_TO]->(t) "
             "ON CREATE SET rel.type = r.rel",
             {"uid": user_id, "rels": rel_params},
@@ -381,29 +323,16 @@ async def retrieve_from_graph(user_id: str, query: str) -> Dict[str, Any]:
     kw_ms = (time.perf_counter() - t0) * 1000
     logger.info("Keywords [%.1fms]: %s", kw_ms, keywords)
 
-    # ── 2. Fetch all user data via Category traversal (cached) ─────
+    # ── 2. Fetch all user data (cached) ─────────────────────────
     db = get_db()
     now_dt = datetime.now(timezone.utc)
     now = now_dt.isoformat()
 
-    # Detect query category for targeted retrieval boost
-    query_category = _detect_query_category(keywords)
-    if query_category:
-        logger.info("Query category detected: %s", query_category)
-
     def _fetch_all():
-        # Unified query: finds entities via EITHER the new Category path
-        # (HAS_CATEGORY→CONTAINS) OR the legacy KNOWS path, and the
-        # entity's own stored .category property as final fallback.
-        # This ensures backward-compatibility with data ingested before
-        # the category-graph migration.
         return db.execute_query(
-            "MATCH (e:Entity {user_id: $uid}) "
-            "OPTIONAL MATCH (:User {user_id: $uid})-[:HAS_CATEGORY]->"
-            "(cat:Category {user_id: $uid})-[:CONTAINS]->(e) "
+            "MATCH (u:User {user_id: $uid})-[:KNOWS]->(e:Entity {user_id: $uid}) "
             "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
-            "RETURN coalesce(cat.name, e.category, 'General') AS category, "
-            "       e.name AS entity, e.type AS type, "
+            "RETURN e.name AS entity, e.type AS type, "
             "       collect(DISTINCT {content: f.content, confidence: f.confidence, "
             "                         last_accessed: f.last_accessed}) AS facts, "
             "       e.last_accessed AS entity_accessed",
@@ -411,7 +340,7 @@ async def retrieve_from_graph(user_id: str, query: str) -> Dict[str, Any]:
         )
 
     t1 = time.perf_counter()
-    records = _get_cached_or_fetch(user_id, "all_entities_v2", _fetch_all)
+    records = _get_cached_or_fetch(user_id, "all_entities", _fetch_all)
     db_ms = (time.perf_counter() - t1) * 1000
 
     # ── 3. Fetch recent conversation history (for long context) ─
@@ -428,22 +357,36 @@ async def retrieve_from_graph(user_id: str, query: str) -> Dict[str, Any]:
     # ── 4. Relevance scoring (CPU, <1ms) ────────────────────────
     t2 = time.perf_counter()
     scored_items: List[Tuple[float, str, str, str]] = []  # (score, entity, fact, type)
-    # broad_query = True when there are no specific keywords (e.g. "tell me about myself")
-    # In this mode we skip keyword matching and rank purely by recency so the user still
-    # gets a useful answer from their stored memories.
-    broad_query = len(keywords) == 0
 
     for rec in records:
         entity = rec.get("entity", "Unknown")
         etype = rec.get("type") or "Entity"
-        entity_category = rec.get("category") or "General"
         facts_data = rec.get("facts", [])
         entity_accessed = rec.get("entity_accessed", now)
-        # 1.4× boost when query domain matches entity category
-        cat_multiplier = 1.4 if query_category and query_category == entity_category else 1.0
 
-        if broad_query:
-            # Recency-only mode: include all entities, ranked by how recently accessed
+        for fd in facts_data:
+            content = fd.get("content")
+            if not content:
+                continue
+            confidence = fd.get("confidence", 1.0) or 1.0
+            last_acc = fd.get("last_accessed", now) or now
+
+            # Calculate hours since last access
+            try:
+                if isinstance(last_acc, str):
+                    acc_dt = datetime.fromisoformat(last_acc.replace("Z", "+00:00"))
+                else:
+                    acc_dt = now_dt
+                hours = max((now_dt - acc_dt).total_seconds() / 3600, 0)
+            except Exception:
+                hours = 0
+
+            score = _compute_relevance(entity, content, keywords, confidence, hours)
+            if score > 0:
+                scored_items.append((score, entity, content, etype))
+
+        # Also score the entity itself (even without facts)
+        if not facts_data or all(not f.get("content") for f in facts_data):
             try:
                 if isinstance(entity_accessed, str):
                     acc_dt = datetime.fromisoformat(entity_accessed.replace("Z", "+00:00"))
@@ -452,56 +395,25 @@ async def retrieve_from_graph(user_id: str, query: str) -> Dict[str, Any]:
                 hours = max((now_dt - acc_dt).total_seconds() / 3600, 0)
             except Exception:
                 hours = 0
-            # Decay from 1.0 → 0.1 over ~30 days
-            recency_base = max(0.1, 1.0 - hours / (24 * 30))
-            for fd in facts_data:
-                content = fd.get("content")
-                if not content:
-                    continue
-                confidence = fd.get("confidence", 1.0) or 1.0
-                scored_items.append((recency_base * confidence * cat_multiplier, entity, content, etype))
-            if not facts_data or all(not f.get("content") for f in facts_data):
-                scored_items.append((recency_base * 0.8 * cat_multiplier, entity, "", etype))
-        else:
-            for fd in facts_data:
-                content = fd.get("content")
-                if not content:
-                    continue
-                confidence = fd.get("confidence", 1.0) or 1.0
-                last_acc = fd.get("last_accessed", now) or now
-
-                try:
-                    if isinstance(last_acc, str):
-                        acc_dt = datetime.fromisoformat(last_acc.replace("Z", "+00:00"))
-                    else:
-                        acc_dt = now_dt
-                    hours = max((now_dt - acc_dt).total_seconds() / 3600, 0)
-                except Exception:
-                    hours = 0
-
-                score = _compute_relevance(entity, content, keywords, confidence, hours) * cat_multiplier
-                if score > 0:
-                    scored_items.append((score, entity, content, etype))
+            score = _compute_relevance(entity, "", keywords, 0.8, hours)
+            if score > 0:
+                scored_items.append((score, entity, "", etype))
 
     # Sort by relevance (descending)
     scored_items.sort(key=lambda x: x[0], reverse=True)
     top_items = scored_items[:_MAX_CONTEXT_FACTS]
     score_ms = (time.perf_counter() - t2) * 1000
 
-    # ── 5. Context assembly ───────────────────────────────────────
+    # ── 5. Context assembly ─────────────────────────────────────
     entities_found: List[str] = []
     context_lines: List[str] = []
     seen_entities: set = set()
-    # For citation: entity → best fact snippet
-    entity_snippets: Dict[str, str] = {}
 
     for score, entity, fact, etype in top_items:
         if entity not in seen_entities:
             entities_found.append(entity)
             seen_entities.add(entity)
         if fact:
-            if entity not in entity_snippets:
-                entity_snippets[entity] = fact[:120]
             context_lines.append(
                 f"- [{etype}] {entity}: {fact} (relevance: {score:.2f})"
             )
@@ -510,34 +422,31 @@ async def retrieve_from_graph(user_id: str, query: str) -> Dict[str, Any]:
                 f"- [Known {etype}] {entity} (relevance: {score:.2f})"
             )
 
-    # Conversation history — always fetched, always included in context
-    history_citations: List[Dict[str, str]] = []
+    # Add recent conversation history for long-context memory
     if history_records:
         context_lines.append("\n--- RECENT CONVERSATION HISTORY ---")
         for hr in history_records[:10]:
             hist_text = hr.get("text", "")
             if hist_text and hist_text != query:
                 context_lines.append(f"- Previously discussed: {hist_text[:150]}")
-                history_citations.append({
-                    "node_id": f"hist_{hr.get('ts', '')[:10]}",
-                    "title": "Conversation History",
-                    "snippet": hist_text[:100],
-                })
 
-    # ── 6. Asynchronous decay update (non-blocking) ─────────────
+    # ── 6. Asynchronous decay update (truly non-blocking) ───────
     if entities_found:
-        try:
-            db.execute_write(
-                "UNWIND $names AS ename "
-                "MATCH (e:Entity {name: ename, user_id: $uid}) "
-                "SET e.last_accessed = $now "
-                "WITH e "
-                "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
-                "SET f.last_accessed = $now",
-                {"uid": user_id, "names": entities_found, "now": now},
-            )
-        except Exception:
-            pass
+        import threading
+        def _update_decay():
+            try:
+                db.execute_write(
+                    "UNWIND $names AS ename "
+                    "MATCH (e:Entity {name: ename, user_id: $uid}) "
+                    "SET e.last_accessed = $now "
+                    "WITH e "
+                    "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
+                    "SET f.last_accessed = $now",
+                    {"uid": user_id, "names": entities_found, "now": now},
+                )
+            except Exception:
+                pass
+        threading.Thread(target=_update_decay, daemon=True).start()
 
     # ── 7. Final timing ─────────────────────────────────────────
     total_ms = (time.perf_counter() - start) * 1000
@@ -560,11 +469,8 @@ async def retrieve_from_graph(user_id: str, query: str) -> Dict[str, Any]:
         "context": context_str,
         "retrieval_time_ms": round(total_ms, 2),
         "entities_found": entities_found,
-        "entity_snippets": entity_snippets,
-        "history_citations": history_citations,
         "total_facts_scanned": len(scored_items),
         "facts_selected": len(top_items),
-        "broad_query": broad_query,
         "perf": {
             "keyword_ms": round(kw_ms, 1),
             "db_ms": round(db_ms, 1),
@@ -609,8 +515,7 @@ def get_user_profile(user_id: str) -> Dict[str, Any]:
 
     def _fetch():
         return db.execute_query(
-            "MATCH (u:User {user_id: $uid})-[:HAS_CATEGORY]->"
-            "(:Category {user_id: $uid})-[:CONTAINS]->(e:Entity {user_id: $uid}) "
+            "MATCH (u:User {user_id: $uid})-[:KNOWS]->(e:Entity {user_id: $uid}) "
             "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
             "RETURN e.name AS name, e.type AS type, count(f) AS fact_count "
             "ORDER BY fact_count DESC",
@@ -653,70 +558,77 @@ def get_user_profile(user_id: str) -> Dict[str, Any]:
 # ── Mindmap Data (user-scoped) ─────────────────────────────────
 
 def get_user_graph(user_id: str) -> Dict[str, Any]:
-    """Fetch the full hierarchical subgraph: User → Categories → Entities.
-
-    Structure returned:
-      User node (center)
-        ├─ Category node (Health, Finance, Learning, Work, Travel, Personal, General)
-        │     └─ Entity nodes  →  [RELATED_TO]  → other Entity nodes
-        ...
-
-    Facts are excluded from the graph payload to keep the canvas clean;
-    they are surfaced only through chat retrieval context.
-    """
+    """Fetch the full subgraph for a user — nodes and edges for the viz."""
     db = get_db()
 
     def _fetch_graph():
-        entity_records = db.execute_query(
-            "MATCH (u:User {user_id: $uid})-[:HAS_CATEGORY]->"
-            "(cat:Category {user_id: $uid})-[:CONTAINS]->(e:Entity {user_id: $uid}) "
+        # Single combined query — one round-trip instead of two
+        combined = db.execute_query(
+            "MATCH (e:Entity {user_id: $uid}) "
             "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
-            "RETURN cat.name AS category, e.name AS entity, e.type AS type, "
-            "       count(f) AS fact_count, e.last_accessed AS accessed",
+            "WITH e, collect(f.content) AS facts "
+            "OPTIONAL MATCH (e)-[r:RELATED_TO]->(t:Entity {user_id: $uid}) "
+            "RETURN e.name AS entity, e.type AS type, "
+            "       facts, e.last_accessed AS accessed, "
+            "       collect(CASE WHEN t IS NOT NULL "
+            "              THEN {target: t.name, relation: r.type} "
+            "              ELSE NULL END) AS rels",
             {"uid": user_id},
         )
-        rel_records = db.execute_query(
-            "MATCH (s:Entity {user_id: $uid})-[r:RELATED_TO]->(t:Entity {user_id: $uid}) "
-            "RETURN s.name AS source, t.name AS target, r.type AS relation",
-            {"uid": user_id},
-        )
+        # Split into entity_records and rel_records for compatibility
+        entity_records = []
+        rel_records = []
+        for rec in combined:
+            entity_records.append({
+                "entity": rec.get("entity"),
+                "type": rec.get("type"),
+                "facts": rec.get("facts", []),
+                "accessed": rec.get("accessed"),
+            })
+            for rel in (rec.get("rels") or []):
+                if rel and rel.get("target"):
+                    rel_records.append({
+                        "source": rec.get("entity"),
+                        "target": rel["target"],
+                        "relation": rel.get("relation", "RELATED_TO"),
+                    })
         return entity_records, rel_records
 
-    entity_records, rel_records = _get_cached_or_fetch(user_id, "graph_cat", _fetch_graph)
+    entity_records, rel_records = _get_cached_or_fetch(user_id, "graph", _fetch_graph)
 
-    nodes = [{"id": user_id, "label": "Me", "group": "User", "facts": 0}]
+    nodes = [{"id": user_id, "label": user_id, "group": "User", "facts": 0}]
     edges = []
     seen_nodes = {user_id}
-    seen_categories: Dict[str, str] = {}  # category_name → node_id
 
     for rec in entity_records:
-        category = str(rec.get("category") or "General").strip()
-        entity = str(rec.get("entity") or "").strip()
+        entity = rec.get("entity") or ""
+        entity = str(entity).strip()
         if not entity:
-            continue
+            continue  # skip null/empty entity names
         etype = str(rec.get("type") or "Entity")
-        fact_count = rec.get("fact_count") or 0
-
-        # ── Category node ───────────────────────────────────────────
-        cat_id = f"cat_{category.lower().replace(' ', '_')}"
-        if cat_id not in seen_categories:
-            nodes.append({
-                "id": cat_id, "label": category,
-                "group": "Category", "facts": 0,
-            })
-            seen_categories[category] = cat_id
-            edges.append({"source": user_id, "target": cat_id, "label": "HAS_CATEGORY"})
-
-        # ── Entity node ─────────────────────────────────────────────
+        facts = rec.get("facts") or []
+        fact_count = len([f for f in facts if f])
         if entity not in seen_nodes:
             nodes.append({
                 "id": entity, "label": entity,
                 "group": etype, "facts": fact_count,
             })
             seen_nodes.add(entity)
-        edges.append({"source": cat_id, "target": entity, "label": "CONTAINS"})
+        edges.append({"source": user_id, "target": entity, "label": "KNOWS"})
 
-    # ── Cross-entity relationships ───────────────────────────────────
+        for fact in facts:
+            if fact:
+                fact_str = str(fact)
+                fact_id = f"fact_{hashlib.md5(fact_str.encode()).hexdigest()[:8]}"
+                if fact_id not in seen_nodes:
+                    short = fact_str[:50] + "…" if len(fact_str) > 50 else fact_str
+                    nodes.append({
+                        "id": fact_id, "label": short,
+                        "group": "Fact", "facts": 0,
+                    })
+                    seen_nodes.add(fact_id)
+                edges.append({"source": entity, "target": fact_id, "label": "HAS_FACT"})
+
     for rec in rel_records:
         source = str(rec.get("source") or "").strip()
         target = str(rec.get("target") or "").strip()
@@ -725,3 +637,115 @@ def get_user_graph(user_id: str) -> Dict[str, Any]:
             edges.append({"source": source, "target": target, "label": relation})
 
     return {"nodes": nodes, "edges": edges}
+
+
+# ── Chat Session Persistence ───────────────────────────────────
+
+def create_chat_session(user_id: str, session_id: str) -> Dict[str, Any]:
+    """Create a new chat session node in Neo4j."""
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    db.execute_write(
+        "MERGE (u:User {user_id: $uid}) "
+        "CREATE (s:ChatSession {session_id: $sid, user_id: $uid, "
+        "        title: 'New Chat', created_at: $now, updated_at: $now, "
+        "        message_count: 0}) "
+        "MERGE (u)-[:HAS_SESSION]->(s)",
+        {"uid": user_id, "sid": session_id, "now": now},
+    )
+    return {"session_id": session_id, "title": "New Chat", "created_at": now, "updated_at": now}
+
+
+def list_chat_sessions(user_id: str) -> List[Dict[str, Any]]:
+    """List all chat sessions for a user, most recent first."""
+    db = get_db()
+    records = db.execute_query(
+        "MATCH (u:User {user_id: $uid})-[:HAS_SESSION]->(s:ChatSession {user_id: $uid}) "
+        "RETURN s.session_id AS session_id, s.title AS title, "
+        "       s.message_count AS message_count, "
+        "       s.created_at AS created_at, s.updated_at AS updated_at "
+        "ORDER BY s.updated_at DESC",
+        {"uid": user_id},
+    )
+    return [
+        {
+            "session_id": r.get("session_id", ""),
+            "title": r.get("title", "New Chat"),
+            "message_count": r.get("message_count", 0),
+            "created_at": r.get("created_at", ""),
+            "updated_at": r.get("updated_at", ""),
+        }
+        for r in records
+    ]
+
+
+def get_chat_session(user_id: str, session_id: str) -> Dict[str, Any]:
+    """Load all messages for a chat session."""
+    db = get_db()
+    # Get session metadata
+    session_records = db.execute_query(
+        "MATCH (s:ChatSession {session_id: $sid, user_id: $uid}) "
+        "RETURN s.title AS title, s.created_at AS created_at, s.updated_at AS updated_at",
+        {"uid": user_id, "sid": session_id},
+    )
+    if not session_records:
+        return {"session_id": session_id, "title": "New Chat", "messages": [], "created_at": "", "updated_at": ""}
+
+    meta = session_records[0]
+
+    # Get messages ordered by timestamp
+    msg_records = db.execute_query(
+        "MATCH (s:ChatSession {session_id: $sid, user_id: $uid})-[:HAS_MESSAGE]->(m:ChatMessage) "
+        "RETURN m.role AS role, m.content AS content, m.timestamp AS timestamp "
+        "ORDER BY m.timestamp ASC",
+        {"uid": user_id, "sid": session_id},
+    )
+    messages = [
+        {"role": r.get("role", ""), "content": r.get("content", ""), "timestamp": r.get("timestamp", "")}
+        for r in msg_records
+    ]
+    return {
+        "session_id": session_id,
+        "title": meta.get("title", "New Chat"),
+        "messages": messages,
+        "created_at": meta.get("created_at", ""),
+        "updated_at": meta.get("updated_at", ""),
+    }
+
+
+def save_chat_message(user_id: str, session_id: str, role: str, content: str) -> None:
+    """Save a single message to a chat session."""
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    mid = _uuid()
+
+    # Determine title: use first user message as title
+    title_update = ""
+    if role == "user":
+        title_update = (
+            "WITH s, m "
+            "WHERE s.title = 'New Chat' "
+            "SET s.title = LEFT($content, 50) "
+        )
+
+    db.execute_write(
+        "MATCH (s:ChatSession {session_id: $sid, user_id: $uid}) "
+        "CREATE (m:ChatMessage {message_id: $mid, role: $role, "
+        "        content: $content, timestamp: $now, user_id: $uid}) "
+        "MERGE (s)-[:HAS_MESSAGE]->(m) "
+        "SET s.updated_at = $now, s.message_count = s.message_count + 1 "
+        + title_update,
+        {"uid": user_id, "sid": session_id, "mid": mid,
+         "role": role, "content": content, "now": now},
+    )
+
+
+def delete_chat_session(user_id: str, session_id: str) -> None:
+    """Delete a chat session and all its messages."""
+    db = get_db()
+    db.execute_write(
+        "MATCH (s:ChatSession {session_id: $sid, user_id: $uid}) "
+        "OPTIONAL MATCH (s)-[:HAS_MESSAGE]->(m:ChatMessage) "
+        "DETACH DELETE s, m",
+        {"uid": user_id, "sid": session_id},
+    )

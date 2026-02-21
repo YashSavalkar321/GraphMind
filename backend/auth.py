@@ -32,10 +32,6 @@ CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")
 CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "")
 
-# ── Own HS256 JWT configuration (used by /auth/signup + /auth/login) ──
-JWT_SECRET = os.getenv("JWT_SECRET", "graphmind-change-me-in-prod")
-JWT_ALGORITHM = "HS256"
-
 _PLACEHOLDERS = {"", "sk_test_your_key_here", "pk_test_your_key_here"}
 
 _clerk_configured = (
@@ -61,32 +57,16 @@ async def get_current_user(
     """FastAPI dependency: extract user_id from JWT or X-User-Id header.
 
     Auth priority:
-    1. Own HS256 Bearer JWT (issued by /auth/signup or /auth/login)
-    2. Clerk RS256 Bearer JWT (verified via Clerk JWKS)
-    3. X-User-Id header (for dev mode)
-    4. user_id query parameter (for GET endpoints)
-    5. 401 Unauthorized
+    1. Bearer JWT token (verified via Clerk JWKS)
+    2. X-User-Id header (for Streamlit frontend / dev mode)
+    3. 401 Unauthorized
 
     Returns
     -------
     str
         The authenticated user's ID.
     """
-    # ── Option 1: Own HS256 JWT (issued by this backend) ───────────
-    if credentials is not None:
-        token = credentials.credentials
-        try:
-            import jwt as pyjwt
-            payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            user_id = payload.get("sub")
-            if user_id:
-                logger.info("HS256 authenticated user: %s", user_id)
-                return user_id
-        except Exception:
-            # Not a valid HS256 token — try Clerk RS256 next
-            pass
-
-    # ── Option 2: Bearer JWT token (Clerk RS256) ───────────────
+    # ── Option 1: Bearer JWT token ──────────────────────────────
     jwt_failed = False
     if credentials is not None and _clerk_configured:
         token = credentials.credentials
