@@ -202,17 +202,14 @@ CLERK_SECRET_KEY=sk_test_your_key_here
 #### 3. Install Python dependencies & start backend
 
 ```bash
-cd backend
+# From the project root (GraphMind/)
+python -m venv venv
+source venv/bin/activate     # Linux/WSL
+# venv\Scripts\activate      # Windows
 
-# Create virtual env (recommended)
-python -m venv .venv
-source .venv/bin/activate    # Linux/WSL
-# .venv\Scripts\activate     # Windows
+pip install -r backend/requirements.txt
 
-pip install -r requirements.txt
-
-# Start the API server (from project root)
-cd ..
+# IMPORTANT: Run from the project root, NOT from inside backend/
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 

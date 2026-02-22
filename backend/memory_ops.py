@@ -282,7 +282,8 @@ async def ingest_to_graph(user_id: str, text: str) -> Dict[str, Any]:
             "  ON CREATE SET e.type = ent.type, e.category = ent.category, "
             "               e.memory_id = ent.mid, e.created_at = ent.now, "
             "               e.last_accessed = ent.now "
-            "  ON MATCH SET e.last_accessed = ent.now, e.category = ent.category "
+            "  ON MATCH SET e.last_accessed = ent.now, e.category = ent.category, "
+            "              e.type = ent.type "
             "MERGE (cat)-[:CONTAINS]->(e)",
             {"uid": user_id, "entities": entity_params},
         )

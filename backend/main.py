@@ -825,6 +825,15 @@ async def memory_ingest(
         doc_id = f"doc_{uuid.uuid4().hex[:10]}"
         title = request.title.strip() or text[:50].rstrip(".") + "…"
 
+        # Refresh in-memory CQRS cache so /chat sees the new data
+        driver = getattr(app.state, "neo4j_driver", None) or getattr(get_db(), "_driver", None)
+        if driver:
+            try:
+                await init_user_session(effective_user_id, driver)
+                logger.info("Session refreshed after ingest for user=%s", effective_user_id)
+            except Exception as e:
+                logger.warning("Session refresh after ingest failed (non-fatal): %s", e)
+
         return IngestResponse(
             status="ok",
             entities_created=total_entities,
@@ -895,6 +904,15 @@ async def upload_file(
             result = await ingest_to_graph(user_id, chunk)
             total_entities += result["entities_created"]
             total_facts += result["facts_created"]
+
+        # Refresh in-memory CQRS cache so /chat sees the new data
+        driver = getattr(app.state, "neo4j_driver", None) or getattr(get_db(), "_driver", None)
+        if driver:
+            try:
+                await init_user_session(user_id, driver)
+                logger.info("Session refreshed after upload for user=%s", user_id)
+            except Exception as e:
+                logger.warning("Session refresh after upload failed (non-fatal): %s", e)
 
         return {
             "status": "ok",
