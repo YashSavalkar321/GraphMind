@@ -18,3 +18,6 @@ passlib[bcrypt]>=1.7.4
 # On Windows: pip install pyahocorasick
 pyahocorasick>=2.0.0
 pydantic-settings>=2.3.0
+# ── Hybrid vector retrieval ───────────────────────────────────
+sentence-transformers>=2.2.0
+numpy>=1.24.0

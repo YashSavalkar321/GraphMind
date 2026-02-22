@@ -3,6 +3,7 @@ GraphMind Backend — Global In-Memory Store (CQRS Read-Model)
 =============================================================
 USER_GRAPHS      : user_id → adjacency list (_UserGraph)
 USER_AUTOMATONS  : user_id → compiled ahocorasick.Automaton (or dict fallback)
+USER_VECTORS     : user_id → per-user embedding matrix (in vector_store.py)
 
 All mutations go through _STORE_LOCK (asyncio.Lock).
 The only Neo4j call: init_user_session() — called once per login.
@@ -86,11 +87,13 @@ RETURN
   COALESCE(n.category, labels(n)[0], 'entity')    AS src_category,
   COALESCE(n.domain, 'General')                   AS src_domain,
   COALESCE(n.snippet, n.content, '')              AS src_snippet,
+  n.embedding                                     AS src_embedding,
   COALESCE(m.name, m.node_id, '')                 AS tgt_id,
   COALESCE(m.display_name, m.name, '')            AS tgt_display,
   COALESCE(m.category, labels(m)[0], 'entity')    AS tgt_category,
   COALESCE(m.domain, 'General')                   AS tgt_domain,
   COALESCE(m.snippet, m.content, '')              AS tgt_snippet,
+  m.embedding                                     AS tgt_embedding,
   type(r)                                         AS rel_type,
   COALESCE(r.reason, '')                          AS rel_reason,
   COALESCE(r.weight, 1.0)                         AS rel_weight,
@@ -98,8 +101,14 @@ RETURN
 """
 
 
-def _build_graph(records: List[dict]) -> _UserGraph:
+def _build_graph(records: List[dict]) -> Tuple[_UserGraph, Dict[str, list]]:
+    """Build adjacency graph + collect embeddings from Neo4j records.
+
+    Returns (graph, embeddings_dict) where embeddings_dict maps
+    node_id → embedding list (may be None for nodes without embeddings).
+    """
     g = _UserGraph()
+    embeddings: Dict[str, list] = {}
     for row in records:
         src = (row.get("src_id") or "").strip().lower()
         if not src:
@@ -111,6 +120,9 @@ def _build_graph(records: List[dict]) -> _UserGraph:
                 domain   = row.get("src_domain") or "General",
                 snippet  = row.get("src_snippet") or "",
             )
+            src_emb = row.get("src_embedding")
+            if src_emb:
+                embeddings[src] = src_emb
         tgt = (row.get("tgt_id") or "").strip().lower()
         if not tgt:
             continue
@@ -121,13 +133,16 @@ def _build_graph(records: List[dict]) -> _UserGraph:
                 domain   = row.get("tgt_domain") or "General",
                 snippet  = row.get("tgt_snippet") or "",
             )
+            tgt_emb = row.get("tgt_embedding")
+            if tgt_emb:
+                embeddings[tgt] = tgt_emb
         g.add_edge(src, tgt,
             relation       = row.get("rel_type") or "RELATED_TO",
             reason         = row.get("rel_reason") or "",
             weight         = float(row.get("rel_weight") or 1.0),
             is_directional = bool(row.get("rel_dir", True)),
         )
-    return g
+    return g, embeddings
 
 
 def _build_automaton(graph: _UserGraph) -> Any:
@@ -140,7 +155,8 @@ def _build_automaton(graph: _UserGraph) -> Any:
                 A.add_word(display, node_id)
         if len(A):
             A.make_automaton()
-        return A
+            return A
+        return None  # No words → scan_query will return []
     else:
         mapping: Dict[str, str] = {}
         for node_id, props in graph.nodes.items():
@@ -158,21 +174,27 @@ def _build_automaton(graph: _UserGraph) -> Any:
 async def init_user_session(user_id: str, driver: Any) -> Tuple[int, int, float]:
     """
     Load user's full graph from Neo4j into RAM once.
+    Also loads/backfills vector embeddings for hybrid retrieval.
     Returns (node_count, automaton_keys_approx, elapsed_ms).
     """
+    from backend.vector_store import load_user_vectors
+
     t0 = time.perf_counter()
 
     def _fetch() -> List[dict]:
         with driver.session() as session:
             return [r.data() for r in session.run(_LOAD_CYPHER, {"user_id": user_id})]
 
-    records  = await asyncio.to_thread(_fetch)
-    graph    = _build_graph(records)
+    records   = await asyncio.to_thread(_fetch)
+    graph, neo4j_embeddings = _build_graph(records)
     automaton = _build_automaton(graph)
 
     async with _STORE_LOCK:
         _USER_GRAPHS[user_id]     = graph
         _USER_AUTOMATONS[user_id] = automaton
+
+    # Load vector index (backfills missing embeddings asynchronously)
+    await load_user_vectors(user_id, graph.nodes, neo4j_embeddings, driver)
 
     elapsed = (time.perf_counter() - t0) * 1_000
     logger.info("Session init: user=%s nodes=%d time=%.1fms", user_id, len(graph), elapsed)
@@ -273,7 +295,9 @@ def assemble_context(nodes: List[dict], edges: List[dict]) -> str:
 
 async def update_user_graph(user_id: str, new_nodes: List[dict],
                              new_edges: List[dict]) -> None:
-    """Incrementally patch the RAM graph + recompile automaton under the lock."""
+    """Incrementally patch the RAM graph + recompile automaton + update vectors."""
+    from backend.vector_store import update_user_vectors
+
     async with _STORE_LOCK:
         graph = _USER_GRAPHS.get(user_id)
         if graph is None:
@@ -299,6 +323,10 @@ async def update_user_graph(user_id: str, new_nodes: List[dict],
                 )
         _USER_AUTOMATONS[user_id] = _build_automaton(graph)
 
+    # Update vector index with new nodes (outside lock — vector_store has its own)
+    if new_nodes:
+        await update_user_vectors(user_id, new_nodes)
+
 
 def get_graph_stats(user_id: str) -> dict:
     graph = _USER_GRAPHS.get(user_id)
@@ -312,5 +340,7 @@ def get_graph_stats(user_id: str) -> dict:
 
 
 def drop_user_session(user_id: str) -> None:
+    from backend.vector_store import drop_user_vectors
     _USER_GRAPHS.pop(user_id, None)
     _USER_AUTOMATONS.pop(user_id, None)
+    drop_user_vectors(user_id)

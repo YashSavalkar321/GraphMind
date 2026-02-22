@@ -84,7 +84,7 @@ sdBackend/
 - **Split-panel layout** — resizable chat + mindmap side-by-side on desktop; tabbed view on mobile.
 - **JWT authentication** — Sign Up / Login modal with JWT stored in `localStorage`; all API calls include `Authorization: Bearer` header.
 - **Memory-grounded chat** — AI responses include retrieval time and memory citations that link to graph nodes.
-- **Knowledge graph (Mindmap)** — interactive React Flow canvas with zoom, minimap, color-coded node types, and detail panel on click.
+- **Knowledge graph (Mindmap)** — interactive React Flow canvas with zoom, minimap, and detail panel on click. Five color-coded node types: **Entity** (purple), **Preference** (pink), **Goal** (teal), **Event** (orange), and **Fact** (green). Interactive filter toggles let you show/hide node categories. Click any node to focus its neighbourhood and reveal connected facts.
 - **Document ingestion** — modal with drag-and-drop file upload or paste text; chunks are visualized as new graph nodes.
 - **Auth-aware Navbar** — shows Login/Sign Up when unauthenticated; shows user avatar + Sign Out when authenticated. Falls back to demo user switcher.
 - **Mock-data fallback** — the frontend works standalone with local mock data when the backend is unreachable.
@@ -109,7 +109,7 @@ sdBackend/
 - **Parallel retrieval** — Vector DB (Qdrant) and Graph DB (Neo4j) are queried simultaneously via `asyncio.gather`.
 - **Hybrid fusion** — results are deduplicated by `memory_id` and assembled into a single context window.
 - **Performance timer** — `time.perf_counter()` wraps *only* the DB fetch + context assembly; the timer stops **before** LLM generation.
-- **LLM extraction** — ingested text is processed by a strict JSON system prompt that outputs `{nodes, edges}` for the knowledge graph.
+- **LLM extraction** — ingested text is processed by a strict JSON system prompt with priority-based classification rules. The LLM extracts nodes into five categories (goal → preference → event → fact → entity) with the first matching rule winning, ensuring proper semantic typing.
 - **User isolation** — every Neo4j query includes `WHERE n.user_id = $user_id`; Qdrant search uses a payload filter on `user_id`.
 - **Graceful degradation** — backend starts even if Neo4j, Qdrant, or Redis are unavailable; features degrade gracefully.
 - **No pre-built memory frameworks** — built with `neo4j`, `qdrant-client`, `fastapi`, `fastembed`, `httpx`, `PyJWT`, and `redis` only.
@@ -443,6 +443,20 @@ docker exec graphmind-redis redis-cli FLUSHALL
 ---
 
 ## Changelog
+
+### 2026-02-22 — Mindmap Enhancement (Rich Node Types, Filter Toggles, Click-to-Expand)
+
+**Knowledge Graph Extraction:**
+- `backend/worker.py` — Rewrote `EXTRACTION_SYSTEM_PROMPT` with 5 mutually exclusive node categories and numbered priority rules (goal → preference → event → fact → entity). Added concrete examples for ambiguous cases so the LLM classifies nodes correctly.
+- `backend/worker.py` — Updated `_LABEL_MAP` and `_run_merges` to handle all node types in a `User → Category → Entity` hierarchy, with facts linked via `HAS_FACT` relationships.
+
+**Backend API:**
+- `backend/memory_ops.py` — `get_user_graph()` now returns node sub-types (preference, goal, event) via `e.type` property, and fetches Fact nodes with `hidden_by_default: true`.
+- `backend/models.py` — Added `hiddenByDefault` field to `ReactFlowNodeData`.
+- `backend/main.py` — Updated `_NODE_TYPE_MAP` to preserve specific types (preference, goal, event). Modified `_graph_to_react_flow()` to include fact nodes positioned below parent entities.
+
+**Frontend:**
+- `frontend/src/components/GraphCanvas.jsx` — Expanded `COLOR_MAP` with 5 distinct colors. Replaced static `Legend` with interactive filter toggles (Entity, Preference, Goal, Event always visible; Fact, Document hidden by default). Added type-based filtering with click-to-expand support: clicking any entity reveals its connected facts even when the Fact toggle is OFF.
 
 ### 2026-02-21 — Production Architecture Upgrade (Auth, Redis, Entity Resolution)
 

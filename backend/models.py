@@ -230,6 +230,7 @@ class ReactFlowNodeData(BaseModel):
     description: str = ""
     nodeType: str = "concept"
     docSource: str = ""
+    hiddenByDefault: bool = False
 
 
 class ReactFlowPosition(BaseModel):

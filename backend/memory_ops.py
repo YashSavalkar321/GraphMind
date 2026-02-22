@@ -660,16 +660,14 @@ def get_user_profile(user_id: str) -> Dict[str, Any]:
 # ── Mindmap Data (user-scoped) ─────────────────────────────────
 
 def get_user_graph(user_id: str) -> Dict[str, Any]:
-    """Fetch the full hierarchical subgraph: User → Categories → Entities.
+    """Fetch the full hierarchical subgraph: User → Categories → Entities + Facts.
 
     Structure returned:
       User node (center)
         ├─ Category node (Health, Finance, Learning, Work, Travel, Personal, General)
         │     └─ Entity nodes  →  [RELATED_TO]  → other Entity nodes
+        │           └─ Fact nodes (hidden_by_default)
         ...
-
-    Facts are excluded from the graph payload to keep the canvas clean;
-    they are surfaced only through chat retrieval context.
     """
     db = get_db()
 
@@ -678,7 +676,8 @@ def get_user_graph(user_id: str) -> Dict[str, Any]:
             "MATCH (u:User {user_id: $uid})-[:HAS_CATEGORY]->"
             "(cat:Category {user_id: $uid})-[:CONTAINS]->(e:Entity {user_id: $uid}) "
             "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
-            "RETURN cat.name AS category, e.name AS entity, e.type AS type, "
+            "RETURN cat.name AS category, e.name AS entity, "
+            "       COALESCE(e.type, 'Entity') AS etype, "
             "       count(f) AS fact_count, e.last_accessed AS accessed",
             {"uid": user_id},
         )
@@ -687,9 +686,18 @@ def get_user_graph(user_id: str) -> Dict[str, Any]:
             "RETURN s.name AS source, t.name AS target, r.type AS relation",
             {"uid": user_id},
         )
-        return entity_records, rel_records
+        # Fetch fact nodes linked to entities
+        fact_records = db.execute_query(
+            "MATCH (e:Entity {user_id: $uid})-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
+            "RETURN e.name AS entity, f.name AS fact_id, "
+            "       COALESCE(f.snippet, f.name) AS snippet",
+            {"uid": user_id},
+        )
+        return entity_records, rel_records, fact_records
 
-    entity_records, rel_records = _get_cached_or_fetch(user_id, "graph_cat", _fetch_graph)
+    entity_records, rel_records, fact_records = _get_cached_or_fetch(
+        user_id, "graph_cat", _fetch_graph
+    )
 
     nodes = [{"id": user_id, "label": "Me", "group": "User", "facts": 0}]
     edges = []
@@ -701,7 +709,7 @@ def get_user_graph(user_id: str) -> Dict[str, Any]:
         entity = str(rec.get("entity") or "").strip()
         if not entity:
             continue
-        etype = str(rec.get("type") or "Entity")
+        etype = str(rec.get("etype") or "Entity")
         fact_count = rec.get("fact_count") or 0
 
         # ── Category node ───────────────────────────────────────────
@@ -730,5 +738,22 @@ def get_user_graph(user_id: str) -> Dict[str, Any]:
         relation = str(rec.get("relation") or "RELATED_TO")
         if source and target:
             edges.append({"source": source, "target": target, "label": relation})
+
+    # ── Fact nodes (hidden by default) ───────────────────────────────
+    for rec in fact_records:
+        entity = str(rec.get("entity") or "").strip()
+        fact_id = str(rec.get("fact_id") or "").strip()
+        snippet = str(rec.get("snippet") or fact_id).strip()
+        if not fact_id:
+            continue
+        if fact_id not in seen_nodes:
+            nodes.append({
+                "id": fact_id, "label": snippet[:60],
+                "group": "Fact", "facts": 0,
+                "hidden_by_default": True,
+            })
+            seen_nodes.add(fact_id)
+        if entity and fact_id:
+            edges.append({"source": entity, "target": fact_id, "label": "HAS_FACT"})
 
     return {"nodes": nodes, "edges": edges}

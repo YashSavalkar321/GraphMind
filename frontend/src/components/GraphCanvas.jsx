@@ -12,24 +12,29 @@ import {
   MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Network, Info, X, GitBranch, CircleDot, MousePointerClick } from 'lucide-react';
+import { Network, Info, X, GitBranch, CircleDot, MousePointerClick, Eye, EyeOff } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import useGraphHighlight from '../hooks/useGraphHighlight';
 
 /* ── Colour palette per node type ── */
 const COLOR_MAP = {
-  concept:  { bg: '#6366f1', border: '#818cf8', glow: 'rgba(99,102,241,0.35)'  },
-  entity:   { bg: '#8b5cf6', border: '#a78bfa', glow: 'rgba(139,92,246,0.35)'  },
-  document: { bg: '#0ea5e9', border: '#38bdf8', glow: 'rgba(14,165,233,0.35)'  },
-  fact:     { bg: '#10b981', border: '#34d399', glow: 'rgba(16,185,129,0.35)'  },
-  category: { bg: '#f59e0b', border: '#fcd34d', glow: 'rgba(245,158,11,0.45)'  },
+  entity:     { bg: '#8b5cf6', border: '#a78bfa', glow: 'rgba(139,92,246,0.35)'  },
+  preference: { bg: '#ec4899', border: '#f472b6', glow: 'rgba(236,72,153,0.35)'  },
+  goal:       { bg: '#14b8a6', border: '#2dd4bf', glow: 'rgba(20,184,166,0.35)'  },
+  event:      { bg: '#f97316', border: '#fb923c', glow: 'rgba(249,115,22,0.35)'  },
+  fact:       { bg: '#10b981', border: '#34d399', glow: 'rgba(16,185,129,0.35)'  },
+  document:   { bg: '#0ea5e9', border: '#38bdf8', glow: 'rgba(14,165,233,0.35)'  },
+  category:   { bg: '#f59e0b', border: '#fcd34d', glow: 'rgba(245,158,11,0.45)'  },
 };
+
+/* Legacy + fallback mappings */
+const getNodeColor = (nodeType) => COLOR_MAP[nodeType] || COLOR_MAP.entity;
 
 /* ── Custom Node ── */
 function MindmapNode({ id, data, selected }) {
   const highlightedNodeId = useAppStore((s) => s.highlightedNodeId);
   const isHighlighted = id === highlightedNodeId;
-  const colors = COLOR_MAP[data.nodeType] || COLOR_MAP.concept;
+  const colors = getNodeColor(data.nodeType);
 
   return (
     <div
@@ -88,10 +93,12 @@ function MindmapNode({ id, data, selected }) {
 }
 
 const nodeTypes = {
-  concept: MindmapNode,
   entity: MindmapNode,
-  document: MindmapNode,
+  preference: MindmapNode,
+  goal: MindmapNode,
+  event: MindmapNode,
   fact: MindmapNode,
+  document: MindmapNode,
   category: CategoryNode,
 };
 
@@ -130,6 +137,59 @@ function CategoryNode({ id, data, selected }) {
   );
 }
 
+/* ── Filter Toggle Buttons ── */
+const FILTER_GROUPS = [
+  // Always visible by default
+  { key: 'entity',     label: 'Entity',     defaultOn: true },
+  { key: 'preference', label: 'Preference', defaultOn: true },
+  { key: 'goal',       label: 'Goal',       defaultOn: true },
+  { key: 'event',      label: 'Event',      defaultOn: true },
+  // Hidden by default (toggleable)
+  { key: 'fact',       label: 'Fact',        defaultOn: false },
+  { key: 'document',   label: 'Document',    defaultOn: false },
+];
+
+function FilterToggles({ visibleTypes, onToggle }) {
+  return (
+    <div className="hidden sm:flex items-center gap-0.5 px-2.5 py-1.5 rounded-xl bg-surface-light/30 border border-surface-lighter/30 flex-shrink-0">
+      {FILTER_GROUPS.map((item) => {
+        const isOn = visibleTypes.has(item.key);
+        const colors = getNodeColor(item.key);
+        return (
+          <button
+            key={item.key}
+            onClick={() => onToggle(item.key)}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all duration-200 cursor-pointer ${
+              isOn
+                ? 'bg-surface-lighter/30 shadow-sm'
+                : 'opacity-40 hover:opacity-70'
+            }`}
+            title={`${isOn ? 'Hide' : 'Show'} ${item.label} nodes`}
+          >
+            <div
+              className="w-2 h-2 rounded-full shadow-sm transition-all"
+              style={{
+                backgroundColor: isOn ? colors.bg : '#4b5563',
+                boxShadow: isOn ? `0 0 6px ${colors.bg}40` : 'none',
+              }}
+            />
+            <span className={`text-[10px] font-medium transition-colors ${
+              isOn ? 'text-text-secondary/90' : 'text-text-muted/50'
+            }`}>
+              {item.label}
+            </span>
+            {isOn ? (
+              <Eye className="w-2.5 h-2.5 text-text-muted/60" />
+            ) : (
+              <EyeOff className="w-2.5 h-2.5 text-text-muted/30" />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ── Inner component (has access to useReactFlow) ── */
 function GraphCanvasInner() {
   const graphData = useAppStore((s) => s.getMindmapForCurrentUser());
@@ -140,6 +200,25 @@ function GraphCanvasInner() {
 
   // Focus mode: which node ID is currently focused (neighbourhood shown)
   const [focusedNodeId, setFocusedNodeId] = useState(null);
+
+  // Type visibility filter
+  const [visibleTypes, setVisibleTypes] = useState(() => {
+    const initial = new Set();
+    FILTER_GROUPS.forEach((g) => { if (g.defaultOn) initial.add(g.key); });
+    return initial;
+  });
+
+  const handleToggleType = useCallback((typeKey) => {
+    setVisibleTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(typeKey)) {
+        next.delete(typeKey);
+      } else {
+        next.add(typeKey);
+      }
+      return next;
+    });
+  }, []);
 
   // Store-level retrieval focus (set from CitationBadge "Show subgraph" button)
   const retrievalFocusNodeIds = useAppStore((s) => s.retrievalFocusNodeIds);
@@ -153,7 +232,7 @@ function GraphCanvasInner() {
     () =>
       (graphData?.nodes || []).map((n) => ({
         ...n,
-        type: n.type || 'concept',
+        type: n.type || 'entity',
         selected: n.id === selectedNode,
       })),
     [graphData?.nodes],
@@ -220,33 +299,51 @@ function GraphCanvasInner() {
 
   const isRetrievalMode = !!retrievalFocusNodeIds;
 
-  /* Apply focus-mode opacity overlay on top of base nodes/edges */
+  /* ── Type-based + focus-mode filtering ── */
   const displayNodes = useMemo(
     () =>
-      nodes.map((n) => ({
-        ...n,
-        style: {
-          ...n.style,
-          opacity: neighborIds ? (neighborIds.has(n.id) ? 1 : 0.07) : 1,
-          transition: 'opacity 0.25s ease',
-          pointerEvents: neighborIds && !neighborIds.has(n.id) ? 'none' : 'auto',
-        },
-      })),
-    [nodes, neighborIds],
+      nodes
+        .filter((n) => {
+          const nodeType = n.data?.nodeType || n.type || 'entity';
+          // Category nodes are always visible
+          if (nodeType === 'category') return true;
+          // If node is in focus/neighbour set, always show (click-to-expand)
+          if (neighborIds?.has(n.id)) return true;
+          // Otherwise, check the type visibility filter
+          return visibleTypes.has(nodeType);
+        })
+        .map((n) => ({
+          ...n,
+          style: {
+            ...n.style,
+            opacity: neighborIds ? (neighborIds.has(n.id) ? 1 : 0.07) : 1,
+            transition: 'opacity 0.25s ease',
+            pointerEvents: neighborIds && !neighborIds.has(n.id) ? 'none' : 'auto',
+          },
+        })),
+    [nodes, neighborIds, visibleTypes],
+  );
+
+  // Build set of visible node IDs for edge filtering
+  const visibleNodeIds = useMemo(
+    () => new Set(displayNodes.map((n) => n.id)),
+    [displayNodes],
   );
 
   const displayEdges = useMemo(
     () =>
-      edges.map((e) => {
-        const visible = !neighborIds ||
-          (neighborIds.has(e.source) && neighborIds.has(e.target));
-        return {
-          ...e,
-          style: { ...e.style, opacity: visible ? 1 : 0.04, transition: 'opacity 0.25s ease' },
-          animated: visible && !!focusedNodeId,
-        };
-      }),
-    [edges, neighborIds, focusedNodeId],
+      edges
+        .filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target))
+        .map((e) => {
+          const visible = !neighborIds ||
+            (neighborIds.has(e.source) && neighborIds.has(e.target));
+          return {
+            ...e,
+            style: { ...e.style, opacity: visible ? 1 : 0.04, transition: 'opacity 0.25s ease' },
+            animated: visible && !!focusedNodeId,
+          };
+        }),
+    [edges, neighborIds, focusedNodeId, visibleNodeIds],
   );
 
   /* Node click: toggle focus + detail panel */
@@ -293,7 +390,7 @@ function GraphCanvasInner() {
             </p>
           </div>
         </div>
-        <Legend />
+        <FilterToggles visibleTypes={visibleTypes} onToggle={handleToggleType} />
       </header>
 
       {/* ── Canvas ── */}
@@ -320,8 +417,8 @@ function GraphCanvasInner() {
           <Controls position="bottom-left" />
           <MiniMap
             nodeColor={(node) => {
-              const m = { concept: '#6366f1', entity: '#8b5cf6', document: '#0ea5e9', fact: '#10b981' };
-              return m[node.type] || '#6366f1';
+              const colors = getNodeColor(node.type);
+              return colors.bg;
             }}
             maskColor="rgba(3,7,18,0.75)"
             position="bottom-right"
@@ -380,7 +477,7 @@ function GraphCanvasInner() {
           <div className="absolute top-20 right-4 w-72 sm:w-80 bg-surface backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/50 overflow-hidden animate-fade-in-scale z-[50] max-h-[calc(100vh-120px)] flex flex-col">
             <div
               className="h-1.5 flex-shrink-0"
-              style={{ background: COLOR_MAP[selectedNodeData.data.nodeType]?.bg || '#6366f1' }}
+              style={{ background: getNodeColor(selectedNodeData.data.nodeType)?.bg || '#8b5cf6' }}
             />
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] flex-shrink-0">
               <div className="flex items-center gap-2.5">
@@ -399,11 +496,11 @@ function GraphCanvasInner() {
               <div className="flex items-center gap-2.5">
                 <div
                   className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: COLOR_MAP[selectedNodeData.data.nodeType]?.bg || '#6366f1', boxShadow: `0 0 8px ${COLOR_MAP[selectedNodeData.data.nodeType]?.glow || 'transparent'}` }}
+                  style={{ backgroundColor: getNodeColor(selectedNodeData.data.nodeType)?.bg || '#8b5cf6', boxShadow: `0 0 8px ${getNodeColor(selectedNodeData.data.nodeType)?.glow || 'transparent'}` }}
                 />
                 <span
                   className="text-xs font-bold uppercase tracking-wider"
-                  style={{ color: COLOR_MAP[selectedNodeData.data.nodeType]?.border || '#818cf8' }}
+                  style={{ color: getNodeColor(selectedNodeData.data.nodeType)?.border || '#a78bfa' }}
                 >
                   {selectedNodeData.data.nodeType}
                 </span>
@@ -454,27 +551,3 @@ function DetailField({ label, value }) {
   );
 }
 
-function Legend() {
-  const items = [
-    { label: 'Concept', color: '#6366f1' },
-    { label: 'Entity', color: '#8b5cf6' },
-    { label: 'Document', color: '#0ea5e9' },
-    { label: 'Fact', color: '#10b981' },
-  ];
-  return (
-    <div className="hidden sm:flex items-center gap-0.5 px-2.5 py-1.5 rounded-xl bg-surface-light/30 border border-surface-lighter/30 flex-shrink-0">
-      {items.map((item) => (
-        <div
-          key={item.label}
-          className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-surface-lighter/20 transition-colors"
-        >
-          <div
-            className="w-2 h-2 rounded-full shadow-sm"
-            style={{ backgroundColor: item.color, boxShadow: `0 0 6px ${item.color}40` }}
-          />
-          <span className="text-[10px] text-text-secondary/80 font-medium">{item.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}

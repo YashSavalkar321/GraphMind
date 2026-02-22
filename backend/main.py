@@ -44,6 +44,7 @@ from backend.memory_store import (
     _USER_GRAPHS,
 )
 from backend.worker import extract_and_sync_graph
+from backend.vector_store import vector_search as _vector_search, warm_model as _warm_embedding_model
 from backend.models import (
     ChatRequest,
     ChatResponse,
@@ -118,17 +119,129 @@ _user_store: dict = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start/stop the Neo4j driver and set up DB constraints."""
+    """Start/stop the Neo4j driver, set up DB constraints, warm embedding model."""
     db = get_db()
     db.init_driver()
     db.setup_constraints()
     # Expose the raw Neo4j driver on app.state so background workers can use it
     app.state.neo4j_driver = db._driver
-    logger.info("GraphMind backend started ✓  (CQRS in-memory engine ready)")
+    # Eager-load embedding model for hybrid retrieval
+    _warm_embedding_model()
+    logger.info("GraphMind backend started ✓  (CQRS in-memory engine + hybrid retrieval ready)")
     yield
     db.close_driver()
     app.state.neo4j_driver = None
     logger.info("GraphMind backend stopped.")
+
+
+# ── Hybrid Retrieval Engine ────────────────────────────────────
+
+def _hybrid_retrieve(user_id: str, query: str) -> dict:
+    """
+    Hybrid retrieval: graph (Aho-Corasick) + vector (cosine) seeds → BFS → merge + re-rank.
+
+    Returns
+    -------
+    dict with keys:
+        context, retrieval_time_ms, memory_citations, entities_found,
+        broad_query, total_facts_scanned, facts_selected, source
+    """
+    import time as _time
+    t0 = _time.perf_counter()
+
+    # ── 1. Parallel seed collection ── (both are pure CPU, < 3ms total)
+    graph_seed_ids  = scan_query(user_id, query)       # Aho-Corasick exact match
+    vector_results  = _vector_search(user_id, query, top_k=15)  # cosine similarity
+    vector_seed_ids = [nid for nid, _ in vector_results]
+    vector_scores   = {nid: score for nid, score in vector_results}
+
+    # ── 2. Determine retrieval path ──
+    has_graph  = len(graph_seed_ids) > 0
+    has_vector = len(vector_seed_ids) > 0
+
+    if not has_graph and not has_vector:
+        # Broad query — no seeds at all
+        broad_query = True
+        # Use full user subgraph (grab everything up to max_nodes)
+        graph = _USER_GRAPHS.get(user_id)
+        if graph and graph.nodes:
+            all_ids = list(graph.nodes.keys())[:80]
+            sub_nodes, sub_edges = bfs_subgraph(user_id, all_ids, max_hops=0, max_nodes=80)
+        else:
+            sub_nodes, sub_edges = [], []
+
+    elif has_graph and not has_vector:
+        # Graph-only path (current behaviour)
+        broad_query = False
+        sub_nodes, sub_edges = bfs_subgraph(user_id, graph_seed_ids, max_hops=2, max_nodes=80)
+
+    elif not has_graph and has_vector:
+        # Vector-only path (pure semantic)
+        broad_query = False
+        sub_nodes, sub_edges = bfs_subgraph(user_id, vector_seed_ids, max_hops=2, max_nodes=80)
+
+    else:
+        # ── Full hybrid merge ──
+        broad_query = False
+
+        graph_set  = set(graph_seed_ids)
+        vector_set = set(vector_seed_ids)
+
+        # Weighted merge: graph=1.0, vector=0.6, overlap=1.6
+        merged_scores: Dict[str, float] = {}
+        for nid in graph_set:
+            merged_scores[nid] = merged_scores.get(nid, 0.0) + 1.0
+        for nid in vector_set:
+            vscore = vector_scores.get(nid, 0.5) * 0.6  # scale vector score
+            merged_scores[nid] = merged_scores.get(nid, 0.0) + vscore
+
+        # Sort by merged score descending, take top seeds
+        ranked_seeds = sorted(merged_scores.keys(),
+                              key=lambda x: merged_scores[x], reverse=True)[:30]
+
+        sub_nodes, sub_edges = bfs_subgraph(user_id, ranked_seeds, max_hops=2, max_nodes=80)
+
+    context = assemble_context(sub_nodes, sub_edges)
+    retrieval_ms = (_time.perf_counter() - t0) * 1_000
+
+    # ── 3. Build memory citations ──
+    all_seeds = set(graph_seed_ids) | set(vector_seed_ids)
+    memory_citations = [
+        {"node_id": n["node_id"],
+         "title":   n.get("display") or n["node_id"],
+         "snippet": n.get("snippet", "")}
+        for n in sub_nodes if n["node_id"] in all_seeds
+    ][:6]
+
+    entities_found = list(all_seeds)
+
+    # Determine source label
+    if has_graph and has_vector:
+        source = "hybrid"
+    elif has_vector:
+        source = "vector"
+    elif has_graph:
+        source = "graph"
+    else:
+        source = "broad"
+
+    logger.info(
+        "Hybrid retrieve: user=%s graph_seeds=%d vector_seeds=%d "
+        "merged_nodes=%d time=%.2fms source=%s",
+        user_id, len(graph_seed_ids), len(vector_seed_ids),
+        len(sub_nodes), retrieval_ms, source,
+    )
+
+    return {
+        "context":             context,
+        "retrieval_time_ms":   round(retrieval_ms, 3),
+        "memory_citations":    memory_citations,
+        "broad_query":         broad_query,
+        "entities_found":      entities_found,
+        "total_facts_scanned": len(sub_nodes),
+        "facts_selected":      len(sub_nodes),
+        "source":              source,
+    }
 
 
 # ── FastAPI Application ─────────────────────────────────────────
@@ -438,59 +551,91 @@ async def chat(
     request: ChatRequest,
     user_id: str = Depends(get_current_user),
 ):
-    """Chat with memory — retrieve, answer, then auto-ingest."""
+    """Chat with memory — hybrid retrieve, answer, then auto-ingest."""
     # Allow user_id override from request body (frontend sends it there)
     effective_user_id = request.user_id or user_id
     try:
-        # 1. Retrieve context from Neo4j (user-scoped)
-        retrieval = await retrieve_from_graph(effective_user_id, request.query)
+        # ── Lazy-init: load session into RAM if not already warm ──
+        if effective_user_id not in _USER_GRAPHS:
+            db = get_db()
+            _driver = db._driver
+            if _driver:
+                try:
+                    await init_user_session(effective_user_id, _driver)
+                    logger.info("Lazy session init for /chat user=%s", effective_user_id)
+                except Exception as init_exc:
+                    logger.warning("Session init failed (non-fatal): %s", init_exc)
 
-        # 2. Generate answer
-        answer = await generate_answer(request.query, retrieval["context"])
-
-        # 3. Auto-ingest in background (non-blocking)
-        async def _bg_ingest():
-            try:
-                await ingest_to_graph(effective_user_id, request.query)
-                logger.info("Auto-ingested for user=%s", effective_user_id)
-            except Exception as ingest_exc:
-                logger.warning("Auto-ingest failed (non-fatal): %s", ingest_exc)
-        asyncio.create_task(_bg_ingest())
-
-        # 4. Build memory citations from retrieved entities + history
-        entity_snippets = retrieval.get("entity_snippets", {})
-        history_citations = retrieval.get("history_citations", [])
-        broad_query = retrieval.get("broad_query", False)
-
-        memory_citations = [
-            MemoryCitation(
-                node_id=entity,
-                title=entity,
-                snippet=entity_snippets.get(entity, ""),
-            )
-            for entity in retrieval["entities_found"][:6]
-        ]
-        # For broad queries (e.g. "tell me about myself") entities may be ranked by
-        # recency only — also surface history citations so the badge isn't empty.
-        if not memory_citations and history_citations:
+        # ── Retrieve context ──
+        if effective_user_id in _USER_GRAPHS:
+            # Hybrid retrieval (in-memory CQRS + vector search)
+            retrieval = _hybrid_retrieve(effective_user_id, request.query)
+            context = retrieval["context"]
             memory_citations = [
                 MemoryCitation(
-                    node_id=h["node_id"],
-                    title=h["title"],
-                    snippet=h["snippet"],
-                )
-                for h in history_citations[:4]
+                    node_id=c["node_id"], title=c["title"], snippet=c["snippet"]
+                ) for c in retrieval["memory_citations"]
             ]
+            retrieval_time_ms = retrieval["retrieval_time_ms"]
+            entities_found = retrieval["entities_found"]
+            broad_query = retrieval["broad_query"]
+            total_facts_scanned = retrieval["total_facts_scanned"]
+            facts_selected = retrieval["facts_selected"]
+        else:
+            # Fallback: standard Neo4j retrieval (session init failed)
+            retrieval = await retrieve_from_graph(effective_user_id, request.query)
+            entity_snippets = retrieval.get("entity_snippets", {})
+            history_citations = retrieval.get("history_citations", [])
+            context = retrieval["context"]
+            retrieval_time_ms = retrieval["retrieval_time_ms"]
+            entities_found = retrieval["entities_found"]
+            broad_query = retrieval.get("broad_query", False)
+            total_facts_scanned = retrieval.get("total_facts_scanned", 0)
+            facts_selected = retrieval.get("facts_selected", 0)
+
+            memory_citations = [
+                MemoryCitation(
+                    node_id=entity, title=entity,
+                    snippet=entity_snippets.get(entity, ""),
+                ) for entity in entities_found[:6]
+            ]
+            if not memory_citations and history_citations:
+                memory_citations = [
+                    MemoryCitation(
+                        node_id=h["node_id"], title=h["title"], snippet=h["snippet"],
+                    ) for h in history_citations[:4]
+                ]
+
+        # ── Generate answer ──
+        answer = await generate_answer(request.query, context)
+
+        # ── Background: extract knowledge + sync graph (with embeddings) ──
+        db = get_db()
+        _driver = db._driver
+        if _driver and effective_user_id in _USER_GRAPHS:
+            from backend.llm_service import _chat as _llm_chat
+            async def _llm_fn(sys_p: str, usr_p: str) -> str:
+                return await asyncio.to_thread(_llm_chat, sys_p, usr_p)
+            asyncio.create_task(
+                extract_and_sync_graph(effective_user_id, request.query, _driver, _llm_fn)
+            )
+        else:
+            # Fallback: old ingest path (no embeddings)
+            async def _bg_ingest():
+                try:
+                    await ingest_to_graph(effective_user_id, request.query)
+                except Exception as ingest_exc:
+                    logger.warning("Auto-ingest failed (non-fatal): %s", ingest_exc)
+            asyncio.create_task(_bg_ingest())
 
         return ChatResponse(
             answer=answer,
-            response=answer,               # frontend-compatible alias
-            retrieval_time_ms=retrieval["retrieval_time_ms"],
-            context_used=retrieval["context"],
-            entities_found=retrieval["entities_found"],
-            total_facts_scanned=retrieval.get("total_facts_scanned", 0),
-            facts_selected=retrieval.get("facts_selected", 0),
-            perf=retrieval.get("perf"),
+            response=answer,
+            retrieval_time_ms=retrieval_time_ms,
+            context_used=context,
+            entities_found=entities_found,
+            total_facts_scanned=total_facts_scanned,
+            facts_selected=facts_selected,
             memory_citations=memory_citations,
             broad_query=broad_query,
         )
@@ -531,47 +676,22 @@ async def chat_stream(
     effective_user_id = request.user_id or user_id
     driver = getattr(req.app.state, "neo4j_driver", None)
 
-    # ── Read path: choose in-memory (fast) vs Neo4j (fallback) ──────────────
+    # ── Lazy-init: load session into RAM if not already warm ──────────────
+    if effective_user_id not in _USER_GRAPHS and driver:
+        try:
+            await init_user_session(effective_user_id, driver)
+            logger.info("Lazy session init for /chat/stream user=%s", effective_user_id)
+        except Exception as init_exc:
+            logger.warning("Session init failed (non-fatal): %s", init_exc)
+
+    # ── Read path: hybrid in-memory (preferred) vs Neo4j (fallback) ────────
     if effective_user_id in _USER_GRAPHS:
-        # ── FAST PATH: all RAM, zero DB ──────────────────────────────────────
-        import time as _time
-        t0 = _time.perf_counter()
-
-        seed_ids  = scan_query(effective_user_id, request.query)
-        broad_query = len(seed_ids) == 0
-
-        sub_nodes, sub_edges = bfs_subgraph(
-            effective_user_id, seed_ids, max_hops=2, max_nodes=80
-        )
-        context = assemble_context(sub_nodes, sub_edges)
-        retrieval_ms = (_time.perf_counter() - t0) * 1_000
-
-        seed_set = set(seed_ids)
-        memory_citations = [
-            {"node_id": n["node_id"],
-             "title":   n.get("display") or n["node_id"],
-             "snippet": n.get("snippet", "")}
-            for n in sub_nodes if n["node_id"] in seed_set
-        ][:6]
-
-        entities_found = seed_ids
-        retrieval_meta = {
-            "retrieval_time_ms": round(retrieval_ms, 3),
-            "memory_citations":  memory_citations,
-            "broad_query":       broad_query,
-            "entities_found":    entities_found,
-            "total_facts_scanned": len(sub_nodes),
-            "facts_selected":    len(sub_nodes),
-            "source":            "ram",
-        }
-        logger.info(
-            "CQRS read: user=%s seeds=%d nodes=%d time=%.2fms",
-            effective_user_id, len(seed_ids), len(sub_nodes), retrieval_ms,
-        )
+        # ── FAST PATH: Hybrid retrieval (graph + vector, all RAM) ─────────
+        retrieval_meta = _hybrid_retrieve(effective_user_id, request.query)
+        context = retrieval_meta["context"]
 
         # Fire-and-forget: extract new knowledge + sync to Neo4j + update RAM
         if driver:
-            # Inline LLM function so worker can call it
             from backend.llm_service import _chat  # type: ignore[attr-defined]
             async def _llm_fn(sys_p: str, usr_p: str) -> str:
                 import asyncio as _aio
@@ -582,7 +702,7 @@ async def chat_stream(
             )
 
     else:
-        # ── FALLBACK PATH: standard Neo4j retrieval ──────────────────────────
+        # ── FALLBACK PATH: standard Neo4j retrieval (init failed) ─────────
         retrieval = await retrieve_from_graph(effective_user_id, request.query)
         entity_snippets   = retrieval.get("entity_snippets", {})
         history_citations = retrieval.get("history_citations", [])
@@ -823,18 +943,25 @@ _NODE_TYPE_MAP = {
     "document": "document",
     "user": "entity",
     "category": "category",
-    "technology": "concept",
+    "technology": "entity",
     "person": "entity",
-    "skill": "concept",
-    "topic": "concept",
-    "concept": "concept",
+    "skill": "entity",
+    "topic": "entity",
+    "concept": "entity",
     "entity": "entity",
-    "goal": "concept",
+    "preference": "preference",
+    "goal": "goal",
+    "event": "event",
+    "message": "entity",
+    "document_chunk": "document",
     "resource": "document",
     "symptom": "entity",
     "medication": "entity",
     "expense": "entity",
     "destination": "entity",
+    # Legacy
+    "content": "entity",
+    "request": "entity",
 }
 
 
@@ -846,22 +973,28 @@ def _graph_to_react_flow(
     Tier 0: User node at origin (0, 0)
     Tier 1: Category nodes in inner ring  (r = 300)
     Tier 2: Entity nodes clustered around their Category (r_cat + 220)
+    Tier 3: Fact nodes offset below their parent entity (hidden by default)
 
-    Facts are omitted from the canvas to keep it readable.
     Cross-entity RELATED_TO edges are included as dashed links.
     """
     # ── Build category → entity map from CONTAINS edges ────────
     cat_to_entities: Dict[str, List[str]] = {}
+    entity_to_facts: Dict[str, List[str]] = {}
     for edge in raw_edges:
         if edge.get("label") == "CONTAINS":
             cat_id = edge["source"]
             ent_id = edge["target"]
             cat_to_entities.setdefault(cat_id, []).append(ent_id)
+        elif edge.get("label") == "HAS_FACT":
+            ent_id = edge["source"]
+            fact_id = edge["target"]
+            entity_to_facts.setdefault(ent_id, []).append(fact_id)
 
     # ── Separate node tiers ──────────────────────────────────────
     user_nodes = [n for n in raw_nodes if n.get("group") == "User"]
     cat_nodes  = [n for n in raw_nodes if n.get("group") == "Category"]
-    # Exclude User, Category, Fact from entity tier
+    fact_nodes = [n for n in raw_nodes if n.get("group") == "Fact"]
+    # Entity tier: everything except User, Category, Fact
     entity_ids = {
         n["id"] for n in raw_nodes
         if n.get("group") not in ("User", "Category", "Fact")
@@ -900,22 +1033,30 @@ def _graph_to_react_flow(
                 round(cat_y + 220 * math.sin(ent_angle), 1),
             )
 
+    # Position fact nodes below their parent entities
+    for ent_id, fact_ids in entity_to_facts.items():
+        ent_x, ent_y = positions.get(ent_id, (0, 0))
+        for k, fact_id in enumerate(fact_ids):
+            positions[fact_id] = (
+                round(ent_x + (k - len(fact_ids) / 2) * 160, 1),
+                round(ent_y + 150, 1),
+            )
+
     # ── Build React Flow nodes ───────────────────────────────────
     rf_nodes: List[ReactFlowNode] = []
     rf_edges: List[ReactFlowEdge] = []
 
     for node in raw_nodes:
-        if node.get("group") == "Fact":
-            continue  # facts not rendered on canvas
-
         nid = node["id"]
-        group_raw = (node.get("group") or "concept").lower()
+        group_raw = (node.get("group") or "entity").lower()
+        is_hidden = bool(node.get("hidden_by_default", False))
+
         if group_raw == "user":
             node_type = "entity"
         elif group_raw == "category":
             node_type = "category"
         else:
-            node_type = _NODE_TYPE_MAP.get(group_raw, "concept")
+            node_type = _NODE_TYPE_MAP.get(group_raw, "entity")
 
         pos = positions.get(nid, (0, 0))
         fact_count = node.get("facts") or 0
@@ -927,19 +1068,17 @@ def _graph_to_react_flow(
                 description=f"{fact_count} fact{'s' if fact_count != 1 else ''}" if fact_count else "",
                 nodeType=node_type,
                 docSource="",
+                hiddenByDefault=is_hidden,
             ),
             position=ReactFlowPosition(x=pos[0], y=pos[1]),
         ))
 
-    # ── Build React Flow edges (skip fact edges) ─────────────────
+    # ── Build React Flow edges ───────────────────────────────────
     seen_edge_ids: set = set()
     for i, edge in enumerate(raw_edges):
         src = edge.get("source", "")
         tgt = edge.get("target", "")
         if not src or not tgt:
-            continue
-        # Skip edges to/from Fact nodes
-        if src.startswith("fact_") or tgt.startswith("fact_"):
             continue
         edge_id = f"e_{src[:10]}_{tgt[:10]}_{i}"
         if edge_id in seen_edge_ids:
