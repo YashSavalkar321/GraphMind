@@ -1,78 +1,71 @@
 # GraphMind
 
-> Memory-grounded AI chat with a personal knowledge graph — built with React + FastAPI + Neo4j + Qdrant + Ollama.
+> Memory-grounded AI chat with a personal knowledge graph — built with React + FastAPI + Neo4j + Groq/Gemini.
 
 ---
 
 ## Tech Stack
 
-| Layer        | Technology                                      |
-| ------------ | ----------------------------------------------- |
-| Frontend     | React 19 + Vite 8 + Tailwind CSS v4             |
-| State        | Zustand 5                                       |
-| Graph UI     | @xyflow/react 12 (React Flow)                   |
-| Icons        | lucide-react, react-icons                       |
-| Backend      | FastAPI (Python 3.11+) + Uvicorn                |
-| Auth         | JWT (PyJWT) + bcrypt (passlib)                  |
-| Graph DB     | Neo4j (Docker) — indexed, MERGE-based entity resolution |
-| Vector DB    | Qdrant (Docker or local file-based fallback)    |
-| Cache        | Redis (redis.asyncio) — mindmap + semantic query cache |
-| Embeddings   | fastembed — BAAI/bge-small-en-v1.5 (384-dim, local CPU) |
-| LLM          | Ollama (llama3.1, local) / Groq / Gemini        |
-| Containers   | Docker Compose (WSL2 / Docker Desktop)          |
+| Layer        | Technology                                         |
+| ------------ | -------------------------------------------------- |
+| Frontend     | React 19 + Vite 8 + Tailwind CSS v4               |
+| State        | Zustand 5                                          |
+| Graph UI     | @xyflow/react 12 (React Flow)                      |
+| Icons        | lucide-react, react-icons                          |
+| Backend      | FastAPI (Python 3.11+) + Uvicorn                   |
+| Auth         | Clerk (RS256 JWKS) + own HS256 JWT (dual mode)     |
+| Graph DB     | Neo4j — indexed, MERGE-based entity resolution     |
+| Embeddings   | sentence-transformers — all-MiniLM-L6-v2 (384-dim, GPU/CPU) |
+| In-Memory    | CQRS engine — pyahocorasick + multi-source BFS     |
+| LLM          | Groq (llama-3.3-70b) / Gemini (gemini-1.5-flash)  |
 
 ---
 
 ## Project Structure
 
 ```
-frontend/
-├── src/
-│   ├── App.jsx                  # Root layout (navbar + sidebar + split panels)
-│   ├── main.jsx                 # Entry point
-│   ├── index.css                # Design tokens, animations, utilities
-│   ├── components/
-│   │   ├── Navbar.jsx           # Top bar — logo, ingest button, user switcher
-│   │   ├── ChatSidebar.jsx      # Left sidebar — chat history, pin, new chat
-│   │   ├── ChatWindow.jsx       # Chat panel — messages, input, citations
-│   │   ├── GraphCanvas.jsx      # Mindmap panel — React Flow graph
-│   │   ├── IngestModal.jsx      # Document ingestion modal
-│   │   ├── CitationBadge.jsx    # Memory citation pill
-│   │   ├── PerformanceTimer.jsx # Retrieval time badge
-│   │   ├── LoadingSpinner.jsx   # Spinner component
-│   │   ├── ErrorBoundary.jsx    # React error boundary
-│   │   └── Toast.jsx            # Toast notification
-│   ├── store/
-│   │   └── useAppStore.js       # Zustand global store (API calls + mock fallback)
-│   ├── hooks/
-│   │   └── useGraphHighlight.js # Graph node highlight hook
-│   └── data/
-│       └── mockData.js          # Mock data (fallback when backend is offline)
-
-sdBackend/
-├── docker-compose.yml           # Neo4j + Qdrant + Redis + FastAPI orchestration
-├── Dockerfile                   # Python 3.11-slim + fastembed model pre-warm
-├── requirements.txt             # fastapi, neo4j, qdrant-client, fastembed, httpx, PyJWT, redis
-├── .env / .env.example          # LLM provider, auth, & service connection strings
-├── app/
-│   ├── main.py                  # FastAPI app — CORS, async lifespan, routers
-│   ├── config.py                # Pydantic settings from environment (incl. JWT + Redis)
-│   ├── models.py                # Request/response schemas (auth + memory contracts)
-│   ├── routers/
-│   │   ├── auth.py              # POST /auth/signup, POST /auth/login
-│   │   ├── ingest.py            # POST /memory/ingest (+ Redis cache invalidation)
-│   │   ├── chat.py              # POST /chat (+ semantic query cache)
-│   │   └── mindmap.py           # GET  /memory/mindmap (+ Redis-cached)
-│   └── services/
-│       ├── auth.py              # JWT creation, verification, password hashing
-│       ├── neo4j_client.py      # Async Neo4j driver — indexes, MERGE entity resolution
-│       ├── redis_client.py      # Async Redis wrapper — mindmap + semantic cache
-│       ├── vector_client.py     # Qdrant client (remote or local file fallback)
-│       ├── embeddings.py        # Local fastembed (bge-small-en-v1.5)
-│       ├── llm_client.py        # Ollama / Groq / Gemini HTTP client
-│       ├── extraction.py        # LLM-based knowledge graph extraction
-│       ├── retrieval.py         # Hybrid parallel retrieval + LLM generation
-│       └── chunking.py          # Sentence-aware text chunking
+GraphMind/
+├── .env                             # All configuration (Neo4j, LLM, auth, etc.)
+├── README.md
+│
+├── backend/
+│   ├── __init__.py
+│   ├── main.py                      # FastAPI app — all routes, CORS, CQRS engine, SSE
+│   ├── auth.py                      # Clerk JWT + HS256 JWT + X-User-Id fallback
+│   ├── database.py                  # Neo4j singleton, schema constraints, query helpers
+│   ├── models.py                    # Pydantic request/response schemas
+│   ├── worker.py                    # LLM extraction prompt, graph merge logic
+│   ├── memory_ops.py                # Graph retrieval, user profile, mindmap data
+│   ├── memory_store.py              # In-memory CQRS store (Aho-Corasick + BFS)
+│   ├── llm_service.py               # Groq / Gemini HTTP client + answer generation
+│   ├── vector_store.py              # Sentence-transformers embeddings + cosine search
+│   └── requirements.txt             # Python dependencies
+│
+└── frontend/
+    ├── index.html
+    ├── vite.config.js               # Dev proxy: /api → http://localhost:8000
+    ├── package.json
+    └── src/
+        ├── App.jsx                  # Root layout (navbar + sidebar + split panels)
+        ├── main.jsx                 # Entry point
+        ├── index.css                # Design tokens, animations, utilities
+        ├── components/
+        │   ├── Navbar.jsx           # Top bar — logo, ingest, user switcher, auth modal
+        │   ├── ChatSidebar.jsx      # Left sidebar — chat history, pin, search, delete
+        │   ├── ChatWindow.jsx       # Chat panel — messages, input, citations
+        │   ├── GraphCanvas.jsx      # Mindmap — React Flow, filter toggles, focus mode
+        │   ├── IngestModal.jsx      # Document ingestion modal (text + file upload)
+        │   ├── CitationBadge.jsx    # Memory citation pill + subgraph viewer
+        │   ├── PerformanceTimer.jsx # Retrieval time badge
+        │   ├── LoadingSpinner.jsx   # Spinner component
+        │   ├── ErrorBoundary.jsx    # React error boundary
+        │   └── Toast.jsx            # Toast notification
+        ├── store/
+        │   └── useAppStore.js       # Zustand global store (API calls + mock fallback)
+        ├── hooks/
+        │   └── useGraphHighlight.js # Graph node highlight on citation click
+        └── data/
+            └── mockData.js          # Mock data (fallback when backend is offline)
 ```
 
 ---
@@ -85,8 +78,8 @@ sdBackend/
 - **JWT authentication** — Sign Up / Login modal with JWT stored in `localStorage`; all API calls include `Authorization: Bearer` header.
 - **Memory-grounded chat** — AI responses include retrieval time and memory citations that link to graph nodes.
 - **Knowledge graph (Mindmap)** — interactive React Flow canvas with zoom, minimap, and detail panel on click. Five color-coded node types: **Entity** (purple), **Preference** (pink), **Goal** (teal), **Event** (orange), and **Fact** (green). Interactive filter toggles let you show/hide node categories. Click any node to focus its neighbourhood and reveal connected facts.
-- **Document ingestion** — modal with drag-and-drop file upload or paste text; chunks are visualized as new graph nodes.
-- **Auth-aware Navbar** — shows Login/Sign Up when unauthenticated; shows user avatar + Sign Out when authenticated. Falls back to demo user switcher.
+- **Document ingestion** — modal with drag-and-drop file upload (PDF, TXT, MD) or paste text; chunks are extracted into the knowledge graph.
+- **Auth-aware Navbar** — shows Login/Sign Up when unauthenticated; shows user avatar + Sign Out when authenticated.
 - **Mock-data fallback** — the frontend works standalone with local mock data when the backend is unreachable.
 
 ### Chat Sidebar
@@ -99,31 +92,42 @@ sdBackend/
 - **Search** — filter chat history by title.
 - **Auto-title** — chat title is derived from the first user message.
 
-### Backend — Hybrid RAG Pipeline
+### Backend — Hybrid Retrieval Pipeline
 
-- **JWT authentication** — `/auth/signup` creates a root `(u:User)` node in Neo4j via MERGE and returns a signed JWT. `/auth/login` verifies credentials and issues a token.
-- **High-fidelity entity resolution** — new entities are resolved against existing graph nodes using `MERGE` + `toLower()` normalization on `name_lower`, preventing duplicates across ingestions.
-- **Graph contiguity** — every extracted node is linked to the root `(u:User)` node via `[:OWNS_MEMORY]`, keeping the graph fully connected.
-- **Neo4j indexing for <100ms reads** — startup creates `UNIQUE` constraint on `User.user_id`, plus composite indexes on `(user_id, name_lower)` for Entity, Concept, Document, and Fact labels.
-- **Redis caching** — `GET /memory/mindmap` responses are cached per user (5min TTL). `POST /chat` caches LLM responses by query hash (10min TTL). Caches are invalidated on any graph write (ingest or chat).
-- **Parallel retrieval** — Vector DB (Qdrant) and Graph DB (Neo4j) are queried simultaneously via `asyncio.gather`.
-- **Hybrid fusion** — results are deduplicated by `memory_id` and assembled into a single context window.
-- **Performance timer** — `time.perf_counter()` wraps *only* the DB fetch + context assembly; the timer stops **before** LLM generation.
-- **LLM extraction** — ingested text is processed by a strict JSON system prompt with priority-based classification rules. The LLM extracts nodes into five categories (goal → preference → event → fact → entity) with the first matching rule winning, ensuring proper semantic typing.
-- **User isolation** — every Neo4j query includes `WHERE n.user_id = $user_id`; Qdrant search uses a payload filter on `user_id`.
-- **Graceful degradation** — backend starts even if Neo4j, Qdrant, or Redis are unavailable; features degrade gracefully.
-- **No pre-built memory frameworks** — built with `neo4j`, `qdrant-client`, `fastapi`, `fastembed`, `httpx`, `PyJWT`, and `redis` only.
+- **Dual auth** — Clerk RS256 JWT (production) + own HS256 JWT (dev) + `X-User-Id` header fallback. Auth priority: HS256 → Clerk → header → query param → 401.
+- **In-memory CQRS engine** — on login/signup, the user's full graph is loaded into RAM. Read path uses Aho-Corasick automaton + multi-source BFS for <15ms retrieval with zero Neo4j queries.
+- **SSE streaming** — `/chat/stream` streams the LLM answer token-by-token via Server-Sent Events.
+- **High-fidelity entity resolution** — new entities are resolved against existing graph nodes using `MERGE` + `toLower()` normalization, preventing duplicates.
+- **Priority-based LLM extraction** — ingested text is processed by a strict JSON system prompt with priority-based classification rules. The LLM extracts nodes into five categories (goal → preference → event → fact → entity) with the first matching rule winning.
+- **Hierarchical graph structure** — nodes are organized as `User → Category → Entity` with facts linked via `HAS_FACT` relationships.
+- **Hybrid vector + graph retrieval** — sentence-transformers embeddings (all-MiniLM-L6-v2) provide semantic search alongside Aho-Corasick keyword matching.
+- **Neo4j indexing** — startup creates uniqueness constraints and composite indexes for <100ms reads.
+- **Background graph sync** — after each chat message, knowledge extraction and graph MERGE run asynchronously without blocking the response.
+- **User isolation** — every Neo4j query includes `WHERE n.user_id = $uid`.
+- **Graceful degradation** — backend starts even if Neo4j is unavailable; features degrade gracefully.
+- **Learning path planner** — `/roadmap` generates a personalized learning roadmap based on the user's existing knowledge graph.
+- **No pre-built memory frameworks** — built with `neo4j`, `fastapi`, `groq`, `google-genai`, `sentence-transformers`, and `pyahocorasick` only.
 
 ### API Endpoints
 
-| Method | Path               | Description                          |
-| ------ | ------------------ | ------------------------------------ |
-| POST   | `/auth/signup`     | Register user → create Neo4j User node → return JWT |
-| POST   | `/auth/login`      | Verify credentials → return JWT      |
-| POST   | `/memory/ingest`   | Chunk → embed → MERGE graph → Qdrant + invalidate cache |
-| GET    | `/memory/mindmap`  | All nodes & edges for a user (Redis-cached, React Flow format) |
-| POST   | `/chat`            | Semantic cache check → hybrid retrieve → LLM generate |
-| GET    | `/health`          | Service health check                 |
+| Method | Path               | Description                                              |
+| ------ | ------------------ | -------------------------------------------------------- |
+| GET    | `/health`          | Service health check (Neo4j status, active sessions)     |
+| POST   | `/auth/signup`     | Register user → create Neo4j User node → return JWT      |
+| POST   | `/auth/login`      | Verify credentials → return JWT                          |
+| POST   | `/session/init`    | Warm up in-memory CQRS session (auto-called on auth)     |
+| POST   | `/chat`            | Hybrid retrieve → LLM generate → auto-ingest to graph    |
+| POST   | `/chat/stream`     | Same as `/chat` but streams answer via SSE               |
+| POST   | `/ingest`          | Ingest text into the knowledge graph                     |
+| POST   | `/memory/ingest`   | Frontend-compatible ingest with auto-chunking             |
+| POST   | `/upload`          | Upload PDF/TXT/MD file → extract text → ingest           |
+| GET    | `/mindmap`         | User's knowledge graph (raw nodes + edges)               |
+| GET    | `/memory/mindmap`  | Knowledge graph in React Flow format (positioned nodes)  |
+| GET    | `/chats`           | List all chat sessions for a user                        |
+| POST   | `/chats`           | Save or update a chat session                            |
+| DELETE | `/chats/{chat_id}` | Delete a chat session                                    |
+| GET    | `/profile`         | User knowledge profile (entities, types, fact counts)    |
+| POST   | `/roadmap`         | Generate personalized learning roadmap for a target skill|
 
 ---
 
@@ -133,10 +137,9 @@ sdBackend/
 | ---------- | -------------------------------------------------- |
 | Node.js    | v18+ (for the frontend)                            |
 | Python     | 3.11+ (for the backend)                            |
-| Docker     | Docker Desktop **or** Docker Engine inside WSL2    |
-| Ollama     | Local install — `ollama pull llama3.1` (default LLM) |
+| Docker     | Docker Desktop or Docker Engine (for Neo4j)        |
 
-> **Alternative LLMs:** set `LLM_PROVIDER=groq` or `LLM_PROVIDER=gemini` in `.env` and supply the corresponding API key instead of using Ollama.
+> **LLM:** By default, uses Groq (llama-3.3-70b-versatile). Set `GEMINI_API_KEY` in `.env` to use Google Gemini instead.
 
 ---
 
@@ -154,103 +157,75 @@ The app renders with built-in mock data. Chat and mindmap work in demo mode.
 
 ### Option B — Full stack (recommended)
 
-#### 1. Start Ollama
+#### 1. Start Neo4j (Docker)
 
 ```bash
-# Pull the model once
-ollama pull llama3.1
-
-# Start the server (Windows — bind to all interfaces so WSL can reach it)
-set OLLAMA_HOST=0.0.0.0
-ollama serve
-
-# Verify
-curl http://localhost:11434/       # → "Ollama is running"
-```
-
-> **WSL note:** If you run the backend inside WSL while Ollama runs on Windows, set `OLLAMA_HOST=0.0.0.0` before starting Ollama so WSL can reach it via the gateway IP. Update `OLLAMA_BASE_URL` in `.env` to `http://<WINDOWS_HOST_IP>:11434` (find it with `ip route show default` inside WSL and use the gateway IP).
-
-#### 2. Start Neo4j (Docker)
-
-```bash
-# Using Docker directly:
 docker run -d \
   --name graphmind-neo4j \
   -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/12345678 \
-  -e 'NEO4J_PLUGINS=["apoc"]' \
+  -e NEO4J_AUTH=neo4j/graphmind123 \
   -v graphmind_neo4j_data:/data \
   neo4j:latest
 
 # Verify — open http://localhost:7474 in a browser (Neo4j Browser UI)
 ```
 
-#### 3. Start Qdrant (optional — backend auto-falls back to local file storage)
+#### 2. Configure environment
 
-```bash
-docker run -d \
-  --name graphmind-qdrant \
-  -p 6333:6333 -p 6334:6334 \
-  -v graphmind_qdrant_data:/qdrant/storage \
-  qdrant/qdrant:latest
-```
-
-> If you skip this step, the backend uses local file-based Qdrant storage in `sdBackend/.qdrant_local/`. This is fine for development.
-
-#### 4. Configure environment
-
-```bash
-cd sdBackend
-cp .env.example .env
-```
-
-Edit `sdBackend/.env`:
+Edit `.env` in the project root:
 
 ```dotenv
-# LLM (default: Ollama local)
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434   # or http://<WSL_GATEWAY_IP>:11434
-OLLAMA_MODEL=llama3.1
-
 # Neo4j
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=12345678
+NEO4J_PASSWORD=graphmind123
 
-# Qdrant (ignored if Qdrant container is not running — falls back to local)
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
+# LLM — Groq (primary)
+GROQ_API_KEY=your_groq_api_key_here
+
+# LLM — Gemini (fallback)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# LLM model
+LLM_MODEL=llama-3.3-70b-versatile
+
+# JWT Auth
+JWT_SECRET=graphmind-super-secret-key-change-in-production
+JWT_ALGORITHM=HS256
+JWT_EXPIRY_HOURS=24
+
+# Clerk (optional — for production auth)
+CLERK_PUBLISHABLE_KEY=pk_test_your_key_here
+CLERK_SECRET_KEY=sk_test_your_key_here
 ```
 
-#### 5. Install Python dependencies & start backend
+#### 3. Install Python dependencies & start backend
 
 ```bash
-cd sdBackend
+cd backend
 
 # Create virtual env (recommended)
 python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Linux/WSL:
-source .venv/bin/activate
+source .venv/bin/activate    # Linux/WSL
+# .venv\Scripts\activate     # Windows
 
 pip install -r requirements.txt
 
-# Start the API server
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Start the API server (from project root)
+cd ..
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 You should see:
 
 ```
-INFO  │ Neo4j connected at bolt://localhost:7687
-WARN  │ Remote Qdrant unavailable, using local file-based storage   # (if no Qdrant container)
-INFO  │ Embedding model loaded
-INFO  │ ✅ Startup complete
+INFO  │ Neo4j connectivity verified ✓
+INFO  │ Embedding model loaded (all-MiniLM-L6-v2)
+INFO  │ GraphMind backend started ✓
 INFO  │ Application startup complete.
 ```
 
-#### 6. Start the frontend
+#### 4. Start the frontend
 
 ```bash
 cd frontend
@@ -258,48 +233,27 @@ npm install
 npm run dev          # → http://localhost:5173
 ```
 
-The Vite dev server proxies all `/api/*` requests to `http://localhost:8000`. If the backend is down, the UI falls back to mock data automatically.
-
-### Option C — Docker Compose (all-in-one)
-
-```bash
-cd sdBackend
-docker compose up -d     # Starts Neo4j + Qdrant + Redis + FastAPI
-
-# Then start the frontend separately:
-cd ../frontend
-npm install
-npm run dev
-```
-
-> Docker Compose pulls Neo4j, Qdrant, Redis, and the FastAPI build. If you see TLS errors, use Option B instead.
+The Vite dev server proxies all `/api/*` requests to `http://localhost:8000`.
 
 ---
 
 ## Environment Variables Reference
 
-| Variable            | Default                        | Description                              |
-| ------------------- | ------------------------------ | ---------------------------------------- |
-| `LLM_PROVIDER`      | `ollama`                       | `ollama`, `groq`, or `gemini`            |
-| `OLLAMA_BASE_URL`   | `http://localhost:11434`       | Ollama server URL                        |
-| `OLLAMA_MODEL`      | `llama3.1`                     | Ollama model name                        |
-| `GROQ_API_KEY`      | *(empty)*                      | Groq API key (if using Groq)             |
-| `GROQ_MODEL`        | `llama-3.3-70b-versatile`      | Groq model name                          |
-| `GEMINI_API_KEY`    | *(empty)*                      | Gemini API key (if using Gemini)         |
-| `GEMINI_MODEL`      | `gemini-1.5-flash`             | Gemini model name                        |
-| `NEO4J_URI`         | `bolt://localhost:7687`        | Neo4j Bolt endpoint                      |
-| `NEO4J_USER`        | `neo4j`                        | Neo4j username                           |
-| `NEO4J_PASSWORD`    | `graphmind123`                 | Neo4j password                           |
-| `QDRANT_HOST`       | `localhost`                    | Qdrant server host                       |
-| `QDRANT_PORT`       | `6333`                         | Qdrant server port                       |
-| `QDRANT_COLLECTION` | `graphmind_chunks`             | Qdrant collection name                   |
-| `EMBEDDING_MODEL`   | `BAAI/bge-small-en-v1.5`      | fastembed model (384-dim)                |
-| `REDIS_URL`         | `redis://localhost:6379/0`     | Redis connection URL                     |
-| `JWT_SECRET`        | `graphmind-change-me-in-prod`  | Secret key for JWT signing (**change in production**) |
-| `JWT_ALGORITHM`     | `HS256`                        | JWT signing algorithm                    |
-| `JWT_EXPIRY_HOURS`  | `24`                           | JWT token lifetime in hours              |
-| `CORS_ORIGINS`      | `http://localhost:5173,...`     | Comma-separated allowed origins          |
-| `LOG_LEVEL`         | `info`                         | Python logging level                     |
+| Variable               | Default                               | Description                              |
+| ---------------------- | ------------------------------------- | ---------------------------------------- |
+| `NEO4J_URI`            | `bolt://localhost:7687`               | Neo4j Bolt endpoint                      |
+| `NEO4J_USER`           | `neo4j`                               | Neo4j username                           |
+| `NEO4J_PASSWORD`       | `graphmind123`                        | Neo4j password                           |
+| `GROQ_API_KEY`         | *(empty)*                             | Groq API key (primary LLM)               |
+| `GEMINI_API_KEY`       | *(empty)*                             | Gemini API key (fallback LLM)            |
+| `LLM_MODEL`            | `llama-3.3-70b-versatile`            | LLM model name                           |
+| `JWT_SECRET`           | `graphmind-change-me-in-prod`        | Secret key for HS256 JWT signing         |
+| `JWT_ALGORITHM`        | `HS256`                               | JWT signing algorithm                    |
+| `JWT_EXPIRY_HOURS`     | `24`                                  | JWT token lifetime in hours              |
+| `CLERK_PUBLISHABLE_KEY`| *(empty)*                             | Clerk publishable key (optional)         |
+| `CLERK_SECRET_KEY`     | *(empty)*                             | Clerk secret key (optional)              |
+| `APP_ENV`              | `development`                         | Application environment                  |
+| `BACKEND_URL`          | `http://localhost:8000`               | Backend URL (used by frontend)           |
 
 ---
 
@@ -308,10 +262,7 @@ npm run dev
 ### Backend — FastAPI
 
 **Live reload:**
-The server starts with `--reload`, so any change to Python files in `sdBackend/app/` restarts the server automatically.
-
-**Logs:**
-All backend logs use structured format: `HH:MM:SS │ LEVEL │ module │ message`. Set `LOG_LEVEL=debug` in `.env` for verbose output.
+The server starts with `--reload`, so any change to Python files restarts the server automatically.
 
 **Interactive API docs:**
 FastAPI auto-generates OpenAPI docs:
@@ -322,7 +273,7 @@ FastAPI auto-generates OpenAPI docs:
 
 ```bash
 curl http://localhost:8000/health
-# → {"status":"ok","service":"graphmind-api"}
+# → {"status":"ok","neo4j":true,"version":"2.0.0","active_sessions":0,"architecture":"in-memory-cqrs-sse"}
 ```
 
 **Test signup:**
@@ -334,31 +285,16 @@ curl -X POST http://localhost:8000/auth/signup \
 # → {"user_id":"user_...","name":"Alice","email":"alice@example.com","token":"eyJ..."}
 ```
 
-**Test login:**
-
-```bash
-curl -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"alice@example.com","password":"secret123"}'
-```
-
-**Test ingestion manually:**
-
-```bash
-curl -X POST http://localhost:8000/memory/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"user_id":"user_1","title":"Test Doc","text":"Your text here.","source_type":"text"}'
-```
-
-**Test chat manually:**
+**Test chat:**
 
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"user_1","query":"What did I just ingest?"}'
+  -H "Authorization: Bearer <token>" \
+  -d '{"user_id":"user_1","query":"What do you know about me?"}'
 ```
 
-**Test mindmap (cached via Redis):**
+**Test mindmap:**
 
 ```bash
 curl http://localhost:8000/memory/mindmap?user_id=user_1
@@ -368,13 +304,9 @@ curl http://localhost:8000/memory/mindmap?user_id=user_1
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `Neo4j unavailable` at startup | Neo4j container not running | `docker start graphmind-neo4j` or re-run the `docker run` command |
-| `Remote Qdrant unavailable, using local file-based storage` | Qdrant container not running | This is fine for dev — local file storage works. Or start the Qdrant container. |
-| `All connection attempts failed` (LLM) | Ollama not running or not reachable | Start Ollama: `ollama serve`. If running backend in WSL, ensure `OLLAMA_HOST=0.0.0.0` and update `OLLAMA_BASE_URL` in `.env` |
-| `TLS handshake timeout` pulling Docker images | Docker Hub connectivity issue | Retry later, use a VPN, or use Option B (run services manually) |
-| `Entity extraction LLM call failed` | LLM timeout / unreachable | Non-fatal — ingestion still creates a document node. Check Ollama status. |
-| `Redis unavailable` at startup | Redis not running | `docker start graphmind-redis`. Caching degrades gracefully — features still work. |
-| Port 8000 already in use | Another process on port 8000 | Kill it or use `--port 8001` and update `vite.config.js` proxy target |
+| `Neo4j connectivity check failed` | Neo4j container not running | `docker start graphmind-neo4j` |
+| `LLM call failed` | Groq/Gemini API key missing or invalid | Check `GROQ_API_KEY` and `GEMINI_API_KEY` in `.env` |
+| Port 8000 already in use | Another process on port 8000 | Kill it or use `--port 8001` and update `vite.config.js` proxy |
 
 ### Frontend — Vite + React
 
@@ -392,30 +324,31 @@ npm run build       # Output in frontend/dist/
 npm run preview     # Serve the production build locally
 ```
 
-**Lint:**
-
-```bash
-npm run lint        # ESLint with React hooks + refresh plugins
-```
-
 **API proxy:**
-Vite proxies `/api/*` → `http://localhost:8000/*` (path rewrite strips `/api` prefix). If the backend is on a different port, update [frontend/vite.config.js](frontend/vite.config.js).
+Vite proxies `/api/*` → `http://localhost:8000/*` (path rewrite strips `/api` prefix). If the backend is on a different port, update `frontend/vite.config.js`.
 
 **Mock fallback:**
-Every API call (`sendMessage`, `ingestDocument`, `fetchMindmap`) wraps the fetch in try/catch and falls back to local mock data from `src/data/mockData.js`. This means the frontend always works — even without the backend running.
+Every API call wraps the fetch in try/catch and falls back to local mock data from `src/data/mockData.js`. The frontend always works — even without the backend running.
 
 ### Neo4j
 
 - **Browser UI:** [http://localhost:7474](http://localhost:7474)
-- **Credentials:** `neo4j` / `12345678` (or whatever `NEO4J_PASSWORD` is set to)
+- **Credentials:** `neo4j` / `graphmind123` (or whatever `NEO4J_PASSWORD` is set to)
 - **Useful Cypher queries:**
 
 ```cypher
 -- See all nodes for a user
 MATCH (n) WHERE n.user_id = 'user_1' RETURN n LIMIT 50;
 
--- See all relationships
-MATCH (a)-[r]->(b) WHERE a.user_id = 'user_1' RETURN a, r, b LIMIT 50;
+-- See graph hierarchy (User → Category → Entity)
+MATCH (u:User)-[:HAS_CATEGORY]->(c:Category)-[:CONTAINS]->(e:Entity)
+WHERE u.user_id = 'user_1'
+RETURN u, c, e;
+
+-- See facts linked to entities
+MATCH (e:Entity)-[:HAS_FACT]->(f:Fact)
+WHERE e.user_id = 'user_1'
+RETURN e.name, f.name, f.snippet;
 
 -- Count nodes by label
 MATCH (n) WHERE n.user_id = 'user_1' RETURN labels(n)[0] AS type, count(*) AS count;
@@ -428,94 +361,8 @@ MATCH (n) WHERE n.user_id = 'user_1' DETACH DELETE n;
 
 ```bash
 # Reset Neo4j (delete all nodes and relationships)
-docker exec graphmind-neo4j cypher-shell -u neo4j -p 12345678 "MATCH (n) DETACH DELETE n"
+docker exec graphmind-neo4j cypher-shell -u neo4j -p graphmind123 "MATCH (n) DETACH DELETE n"
 
-# Reset Qdrant local storage
-rm -rf sdBackend/.qdrant_local/
-
-# Flush Redis cache
-docker exec graphmind-redis redis-cli FLUSHALL
-
-# Restart backend to recreate collections & indexes
+# Restart backend to recreate indexes
 # (Ctrl+C the uvicorn process and re-run it)
 ```
-
----
-
-## Changelog
-
-### 2026-02-22 — Mindmap Enhancement (Rich Node Types, Filter Toggles, Click-to-Expand)
-
-**Knowledge Graph Extraction:**
-- `backend/worker.py` — Rewrote `EXTRACTION_SYSTEM_PROMPT` with 5 mutually exclusive node categories and numbered priority rules (goal → preference → event → fact → entity). Added concrete examples for ambiguous cases so the LLM classifies nodes correctly.
-- `backend/worker.py` — Updated `_LABEL_MAP` and `_run_merges` to handle all node types in a `User → Category → Entity` hierarchy, with facts linked via `HAS_FACT` relationships.
-
-**Backend API:**
-- `backend/memory_ops.py` — `get_user_graph()` now returns node sub-types (preference, goal, event) via `e.type` property, and fetches Fact nodes with `hidden_by_default: true`.
-- `backend/models.py` — Added `hiddenByDefault` field to `ReactFlowNodeData`.
-- `backend/main.py` — Updated `_NODE_TYPE_MAP` to preserve specific types (preference, goal, event). Modified `_graph_to_react_flow()` to include fact nodes positioned below parent entities.
-
-**Frontend:**
-- `frontend/src/components/GraphCanvas.jsx` — Expanded `COLOR_MAP` with 5 distinct colors. Replaced static `Legend` with interactive filter toggles (Entity, Preference, Goal, Event always visible; Fact, Document hidden by default). Added type-based filtering with click-to-expand support: clicking any entity reveals its connected facts even when the Fact toggle is OFF.
-
-### 2026-02-21 — Production Architecture Upgrade (Auth, Redis, Entity Resolution)
-
-**Authentication (JWT):**
-- `app/services/auth.py` — JWT creation/verification, bcrypt password hashing, `get_current_user` FastAPI dependency.
-- `app/routers/auth.py` — `POST /auth/signup` (creates root User node in Neo4j via MERGE, returns JWT), `POST /auth/login`.
-- `app/models.py` — Added `SignupRequest`, `SignupResponse`, `LoginRequest`, `LoginResponse` models.
-- `app/config.py` — Added `JWT_SECRET`, `JWT_ALGORITHM`, `JWT_EXPIRY_HOURS`, `REDIS_URL` settings.
-
-**High-Fidelity Entity Resolution:**
-- `app/services/neo4j_client.py` — New `merge_node()` method uses `MERGE` with `toLower()` normalization on `name_lower` to deduplicate entities. Every node is linked to root `(u:User)` via `[:OWNS_MEMORY]`. Edges now use `MERGE` to prevent duplicate relationships.
-- `app/routers/ingest.py` — Switched from `create_node()` to `merge_node()` for all entity insertion.
-
-**Neo4j Indexing (<100ms Retrieval):**
-- Startup `_ensure_indexes()` now creates: `UNIQUE` constraint on `User.user_id`, indexes on `Entity.user_id`, `Concept.user_id`, `Document.user_id`, `Fact.user_id`, and composite `(user_id, name_lower)` indexes for each label.
-
-**Redis Caching:**
-- `app/services/redis_client.py` — Async Redis wrapper with `get/set_mindmap()`, `get/set_query_cache()`, `invalidate_mindmap()`, `invalidate_user_caches()`.
-- `app/routers/mindmap.py` — Reads from `mindmap:{user_id}` cache (5min TTL) before hitting Neo4j.
-- `app/routers/chat.py` — Semantic query cache bypasses retrieval+LLM for identical queries (10min TTL). Invalidates mindmap cache after chat.
-- `app/routers/ingest.py` — Invalidates all user caches after successful ingestion.
-- `docker-compose.yml` — Added `redis:alpine` service with healthcheck, AOF persistence, 256MB maxmemory LRU.
-
-**Frontend Auth:**
-- `store/useAppStore.js` — `signup()`, `login()`, `logout()` actions with JWT in `localStorage`. All API calls include `Authorization: Bearer` header.
-- `components/Navbar.jsx` — Auth-aware: Login/Sign Up buttons when unauthenticated, user avatar + Sign Out when authenticated. Inline `AuthModal` component.
-
-**Dependencies:**
-- `requirements.txt` — Added `PyJWT>=2.8.0`, `passlib[bcrypt]>=1.7.4`, `redis>=5.0.0`.
-
-### 2026-02-20 — Full Backend + Ollama Integration
-
-**Backend created (`sdBackend/`):**
-- `docker-compose.yml` — orchestrates Neo4j, Qdrant, and FastAPI containers.
-- `Dockerfile` — Python 3.11-slim with fastembed model pre-downloaded at build time.
-- `app/main.py` — FastAPI app with CORS, graceful async lifespan (DB connections + model warm-up).
-- `app/config.py` — Pydantic-based settings loaded from `.env`.
-- `app/models.py` — All request/response schemas matching the frontend contract.
-- `app/routers/ingest.py` — Chunking → LLM extraction → Neo4j + Qdrant storage.
-- `app/routers/chat.py` — Parallel hybrid retrieval (timed) → LLM generation.
-- `app/routers/mindmap.py` — Neo4j query → auto-layout → React Flow format.
-- `app/services/neo4j_client.py` — Async Neo4j driver with indexes, CRUD, neighborhood search.
-- `app/services/vector_client.py` — Qdrant client with remote/local fallback and user-filtered search.
-- `app/services/embeddings.py` — Local CPU embeddings via fastembed (BAAI/bge-small-en-v1.5).
-- `app/services/llm_client.py` — Ollama / Groq / Gemini HTTP client with JSON parsing.
-- `app/services/extraction.py` — Knowledge graph extraction via engineered system prompts.
-- `app/services/retrieval.py` — Parallel vector + graph retrieval, hybrid fusion, LLM answer.
-- `app/services/chunking.py` — Sentence-aware text chunking with overlap.
-
-**Frontend modified:**
-- `vite.config.js` — Added dev proxy: `/api` → `http://localhost:8000`.
-- `store/useAppStore.js` — `sendMessage`, `ingestDocument`, `fetchMindmap` now call real API; auto-fallback to mock data when backend is offline.
-
-### 2026-02-20 — Chat Sidebar
-
-**Files added:**
-- `frontend/src/components/ChatSidebar.jsx` — Sidebar with chat history, pin, new chat, search, delete.
-
-**Files modified:**
-- `frontend/src/store/useAppStore.js` — Sidebar state + chat history management actions.
-- `frontend/src/App.jsx` — Sidebar integrated; content shifts on desktop.
-- `frontend/src/index.css` — Slide-in animation.
