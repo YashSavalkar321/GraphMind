@@ -176,7 +176,7 @@ export default function ChatWindow() {
                 Try asking
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {getSuggestions(currentUser?.id).map((s, i) => (
+                {getSuggestions().map((s, i) => (
                   <button
                     key={i}
                     onClick={() => {
@@ -331,19 +331,11 @@ export default function ChatWindow() {
   );
 }
 
-function getSuggestions(userId) {
-  if (userId === 'user_1') {
-    return [
-      'What is quantum computing?',
-      'Explain neural network architectures',
-      'How do graph databases work?',
-      'Tell me about knowledge graphs',
-    ];
-  }
+function getSuggestions() {
   return [
-    'What causes climate change?',
-    'Explain renewable energy sources',
-    'Tell me about energy storage',
-    'How can we reduce CO₂ emissions?',
+    'What do you know about me so far?',
+    'Summarize my ingested documents',
+    'What topics are in my knowledge graph?',
+    'Find connections between my notes',
   ];
 }
