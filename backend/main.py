@@ -176,9 +176,9 @@ def _hybrid_retrieve(user_id: str, query: str) -> dict:
         sub_nodes, sub_edges = bfs_subgraph(user_id, graph_seed_ids, max_hops=2, max_nodes=80)
 
     elif not has_graph and has_vector:
-        # Vector-only path (pure semantic)
+        # Vector-only path (pure semantic) — use reduced hops to avoid pulling in unrelated neighbors
         broad_query = False
-        sub_nodes, sub_edges = bfs_subgraph(user_id, vector_seed_ids, max_hops=2, max_nodes=80)
+        sub_nodes, sub_edges = bfs_subgraph(user_id, vector_seed_ids, max_hops=1, max_nodes=40)
 
     else:
         # ── Full hybrid merge ──
@@ -204,13 +204,25 @@ def _hybrid_retrieve(user_id: str, query: str) -> dict:
     context = assemble_context(sub_nodes, sub_edges)
     retrieval_ms = (_time.perf_counter() - t0) * 1_000
 
-    # ── 3. Build memory citations ──
+    # ── 3. Build memory citations (only include sufficiently relevant nodes) ──
     all_seeds = set(graph_seed_ids) | set(vector_seed_ids)
+    # Filter out low-relevance vector-only seeds based on cosine score
+    min_citation_score = 0.40
+    high_confidence_seeds = set(graph_seed_ids)  # graph matches are always trustworthy
+    for nid in vector_seed_ids:
+        if vector_scores.get(nid, 0) >= min_citation_score:
+            high_confidence_seeds.add(nid)
+
+    # If no graph seeds and best vector score is weak, show no citations at all
+    best_vector_score = max(vector_scores.values()) if vector_scores else 0.0
+    if not has_graph and best_vector_score < min_citation_score:
+        high_confidence_seeds = set()  # skip all citations — nothing truly relevant
+
     memory_citations = [
         {"node_id": n["node_id"],
          "title":   n.get("display") or n["node_id"],
          "snippet": n.get("snippet", "")}
-        for n in sub_nodes if n["node_id"] in all_seeds
+        for n in sub_nodes if n["node_id"] in high_confidence_seeds
     ][:6]
 
     entities_found = list(all_seeds)
@@ -1078,12 +1090,20 @@ def _graph_to_react_flow(
 
         pos = positions.get(nid, (0, 0))
         fact_count = node.get("facts") or 0
+        snippet = (node.get("snippet") or "").strip()
+        # Build a meaningful description: use snippet when available, fall back to fact count
+        if snippet:
+            description = snippet[:80]
+        elif fact_count:
+            description = f"{fact_count} fact{'s' if fact_count != 1 else ''}"
+        else:
+            description = ""
         rf_nodes.append(ReactFlowNode(
             id=nid,
             type=node_type,
             data=ReactFlowNodeData(
                 label=node.get("label", nid),
-                description=f"{fact_count} fact{'s' if fact_count != 1 else ''}" if fact_count else "",
+                description=description,
                 nodeType=node_type,
                 docSource="",
                 hiddenByDefault=is_hidden,

@@ -224,7 +224,7 @@ def vector_search(
     results = []
     for idx in top_indices:
         score = float(scores[idx])
-        if score > 0.1:  # minimum similarity threshold
+        if score > 0.35:  # minimum similarity threshold
             results.append((uv.ids[idx], score))
 
     return results

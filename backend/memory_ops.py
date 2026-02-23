@@ -677,9 +677,12 @@ def get_user_graph(user_id: str) -> Dict[str, Any]:
             "MATCH (u:User {user_id: $uid})-[:HAS_CATEGORY]->"
             "(cat:Category {user_id: $uid})-[:CONTAINS]->(e:Entity {user_id: $uid}) "
             "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
+            "WITH cat, e, count(f) AS fact_count, "
+            "     collect(COALESCE(f.snippet, f.content, f.name, ''))[0] AS first_snippet "
             "RETURN cat.name AS category, e.name AS entity, "
             "       COALESCE(e.type, 'Entity') AS etype, "
-            "       count(f) AS fact_count, e.last_accessed AS accessed",
+            "       fact_count, e.last_accessed AS accessed, "
+            "       COALESCE(first_snippet, '') AS snippet",
             {"uid": user_id},
         )
         rel_records = db.execute_query(
@@ -728,6 +731,7 @@ def get_user_graph(user_id: str) -> Dict[str, Any]:
             nodes.append({
                 "id": entity, "label": entity,
                 "group": etype, "facts": fact_count,
+                "snippet": str(rec.get("snippet") or "").strip(),
             })
             seen_nodes.add(entity)
         edges.append({"source": cat_id, "target": entity, "label": "CONTAINS"})
