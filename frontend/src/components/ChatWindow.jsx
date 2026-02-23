@@ -1,20 +1,72 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, Sparkles, MessageCircle, ArrowDown, Zap } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Bot, Sparkles, MessageCircle, ArrowDown, Zap, Volume2, VolumeX, Square } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import PerformanceTimer from './PerformanceTimer';
 import CitationBadge from './CitationBadge';
+import SpeechHelper from '../utils/speechHelper';
 
 export default function ChatWindow() {
   const messages = useAppStore((s) => s.messages);
   const isTyping = useAppStore((s) => s.isTyping);
   const sendMessage = useAppStore((s) => s.sendMessage);
   const currentUser = useAppStore((s) => s.getCurrentUser());
+  const ttsEnabled = useAppStore((s) => s.ttsEnabled);
+  const toggleTts = useAppStore((s) => s.toggleTts);
   
   const [input, setInput] = useState('');
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [speakingMsgId, setSpeakingMsgId] = useState(null);
   const messagesEndRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const inputRef = useRef(null);
+  const lastSpokenMsgId = useRef(null);
+
+  // Preload TTS voices on mount
+  useEffect(() => {
+    SpeechHelper.preloadVoices();
+  }, []);
+
+  // Auto-speak new assistant responses when TTS is enabled
+  useEffect(() => {
+    if (!ttsEnabled || messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    if (
+      lastMsg.role === 'assistant' &&
+      !lastMsg.streaming &&
+      lastMsg.content &&
+      lastMsg.id !== lastSpokenMsgId.current
+    ) {
+      lastSpokenMsgId.current = lastMsg.id;
+      setSpeakingMsgId(lastMsg.id);
+      SpeechHelper.speak(lastMsg.content, {
+        onEnd: () => setSpeakingMsgId(null),
+        onError: () => setSpeakingMsgId(null),
+      });
+    }
+  }, [messages, ttsEnabled]);
+
+  // Stop speech when TTS is toggled off
+  useEffect(() => {
+    if (!ttsEnabled) {
+      SpeechHelper.stop();
+      setSpeakingMsgId(null);
+    }
+  }, [ttsEnabled]);
+
+  const handleSpeak = useCallback((msg) => {
+    if (speakingMsgId === msg.id) {
+      // Currently speaking this message → stop
+      SpeechHelper.stop();
+      setSpeakingMsgId(null);
+    } else {
+      // Speak this message
+      setSpeakingMsgId(msg.id);
+      SpeechHelper.speak(msg.content, {
+        onEnd: () => setSpeakingMsgId(null),
+        onError: () => setSpeakingMsgId(null),
+      });
+    }
+  }, [speakingMsgId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -78,9 +130,26 @@ export default function ChatWindow() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/20 flex-shrink-0">
-          <div className="w-2 h-2 rounded-full bg-success shadow-sm shadow-success/50 animate-pulse" />
-          <span className="text-[11px] text-success font-medium tracking-wide">Online</span>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {/* TTS toggle */}
+          <button
+            onClick={toggleTts}
+            title={ttsEnabled ? 'Disable auto-speak' : 'Enable auto-speak'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all duration-200 cursor-pointer ${
+              ttsEnabled
+                ? 'bg-primary/15 border-primary/30 text-primary-light'
+                : 'bg-white/[0.03] border-white/[0.08] text-text-muted hover:text-text-secondary hover:border-white/[0.15]'
+            }`}
+          >
+            {ttsEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+            <span className="text-[11px] font-medium tracking-wide">
+              {ttsEnabled ? 'TTS On' : 'TTS Off'}
+            </span>
+          </button>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/20">
+            <div className="w-2 h-2 rounded-full bg-success shadow-sm shadow-success/50 animate-pulse" />
+            <span className="text-[11px] text-success font-medium tracking-wide">Online</span>
+          </div>
         </div>
       </header>
 
@@ -165,7 +234,24 @@ export default function ChatWindow() {
                 {/* Citations & Metrics isolated in a footer section */}
                 {msg.role === 'assistant' && !msg.streaming && msg.content && (
                   <div className="bg-white/[0.03] px-5 py-3.5 border-t border-white/[0.06] rounded-b-2xl flex flex-col gap-3 items-start">
-                    <PerformanceTimer timeMs={msg.retrieval_time_ms} />
+                    <div className="flex items-center justify-between w-full">
+                      <PerformanceTimer timeMs={msg.retrieval_time_ms} />
+                      <button
+                        onClick={() => handleSpeak(msg)}
+                        title={speakingMsgId === msg.id ? 'Stop speaking' : 'Read aloud'}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all duration-200 cursor-pointer ${
+                          speakingMsgId === msg.id
+                            ? 'bg-primary/20 text-primary-light border border-primary/30'
+                            : 'bg-white/[0.04] text-text-muted hover:text-text-secondary hover:bg-white/[0.08] border border-transparent'
+                        }`}
+                      >
+                        {speakingMsgId === msg.id ? (
+                          <><Square className="w-3 h-3" /> Stop</>
+                        ) : (
+                          <><Volume2 className="w-3 h-3" /> Speak</>
+                        )}
+                      </button>
+                    </div>
                     <CitationBadge citations={msg.memory_citations} broadQuery={msg.broad_query} />
                   </div>
                 )}

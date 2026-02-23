@@ -367,6 +367,15 @@ const useAppStore = create((set, get) => ({
   },
   clearRetrievalFocus: () => set({ retrievalFocusNodeIds: null }),
 
+  // ──────────────── Text-to-Speech state ────────────────
+  ttsEnabled: JSON.parse(localStorage.getItem('gm_tts_enabled') || 'false'),
+  toggleTts: () =>
+    set((s) => {
+      const next = !s.ttsEnabled;
+      localStorage.setItem('gm_tts_enabled', JSON.stringify(next));
+      return { ttsEnabled: next };
+    }),
+
   // ──────────────── Chat state ────────────────
   messages: [],
   isTyping: false,
