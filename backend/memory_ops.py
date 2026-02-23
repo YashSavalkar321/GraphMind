@@ -307,10 +307,10 @@ async def ingest_to_graph(user_id: str, text: str) -> Dict[str, Any]:
         db.execute_write(
             "UNWIND $facts AS f "
             "MERGE (e:Entity {name: f.ename, user_id: $uid}) "
-            "MERGE (fct:Fact {content: f.content, user_id: $uid}) "
+            "MERGE (fct:Fact {name: f.content, user_id: $uid}) "
             "ON CREATE SET fct.confidence = f.conf, fct.last_accessed = f.now, "
             "             fct.memory_id = f.mid, fct.created_at = f.now, "
-            "             fct.decay_score = f.conf "
+            "             fct.decay_score = f.conf, fct.snippet = f.content "
             "ON MATCH SET fct.last_accessed = f.now, "
             "            fct.confidence = CASE WHEN fct.confidence < f.conf "
             "                                 THEN f.conf ELSE fct.confidence END "
