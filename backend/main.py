@@ -115,6 +115,31 @@ def _create_jwt(user_id: str, name: str) -> str:
 _user_store: dict = {}
 
 
+def _load_users_from_neo4j():
+    """Load all registered users from Neo4j into _user_store on startup."""
+    try:
+        db = get_db()
+        records = db.execute_query(
+            "MATCH (u:User) "
+            "WHERE u.email IS NOT NULL AND u.hashed_password IS NOT NULL "
+            "RETURN u.user_id AS user_id, u.name AS name, "
+            "       u.email AS email, u.hashed_password AS hashed_password"
+        )
+        for rec in records:
+            email = str(rec.get("email") or "").lower()
+            if not email:
+                continue
+            _user_store[email] = {
+                "user_id": rec["user_id"],
+                "name": rec["name"],
+                "email": email,
+                "hashed_password": rec["hashed_password"],
+            }
+        logger.info("Loaded %d users from Neo4j into memory", len(_user_store))
+    except Exception as exc:
+        logger.warning("Could not load users from Neo4j (non-fatal): %s", exc)
+
+
 # ── Lifespan ────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -125,6 +150,8 @@ async def lifespan(app: FastAPI):
     db.setup_constraints()
     # Expose the raw Neo4j driver on app.state so background workers can use it
     app.state.neo4j_driver = db._driver
+    # Load persisted users so login works across restarts
+    _load_users_from_neo4j()
     # Eager-load embedding model for hybrid retrieval
     _warm_embedding_model()
     logger.info("GraphMind backend started ✓  (CQRS in-memory engine + hybrid retrieval ready)")
@@ -344,14 +371,18 @@ async def signup(request: SignupRequest):
         "hashed_password": hashed,
     }
 
-    # Create root User node in Neo4j
+    # Create root User node in Neo4j (with credentials for persistence)
     try:
         db = get_db()
         now = datetime.now(timezone.utc).isoformat()
         db.execute_write(
             "MERGE (u:User {user_id: $uid}) "
-            "ON CREATE SET u.name = $name, u.created_at = $now",
-            {"uid": user_id, "name": request.name, "now": now},
+            "ON CREATE SET u.name = $name, u.created_at = $now, "
+            "             u.email = $email, u.hashed_password = $hashed "
+            "ON MATCH SET  u.name = $name, u.email = $email, "
+            "             u.hashed_password = $hashed",
+            {"uid": user_id, "name": request.name, "now": now,
+             "email": email_key, "hashed": hashed},
         )
     except Exception as e:
         logger.warning("Could not create User node in Neo4j (non-fatal): %s", e)
