@@ -151,7 +151,7 @@ const FILTER_GROUPS = [
 
 function FilterToggles({ visibleTypes, onToggle }) {
   return (
-    <div className="hidden sm:flex items-center gap-0.5 px-2.5 py-1.5 rounded-xl bg-surface-light/30 border border-surface-lighter/30 flex-shrink-0">
+    <div className="hidden sm:flex items-center gap-0.5 px-2.5 py-1.5 rounded-xl bg-surface-light/30 border border-surface-lighter/30 flex-shrink-0 max-w-full overflow-x-auto">
       {FILTER_GROUPS.map((item) => {
         const isOn = visibleTypes.has(item.key);
         const colors = getNodeColor(item.key);
@@ -368,7 +368,7 @@ function GraphCanvasInner() {
   return (
     <div className="flex flex-col h-full bg-gradient-subtle">
       {/* ── Mini header / stats bar ── */}
-      <header className="flex items-center justify-between px-5 sm:px-6 py-3 border-b border-white/[0.06] bg-surface/80 backdrop-blur-md flex-shrink-0">
+      <header className="flex flex-wrap items-start gap-3 px-4 sm:px-6 py-3 border-b border-white/[0.06] bg-surface/80 backdrop-blur-md flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-secondary/30 to-primary/20 flex items-center justify-center ring-1 ring-secondary/20 flex-shrink-0">
             <Network className="w-4 h-4 text-secondary-light" />
@@ -390,7 +390,9 @@ function GraphCanvasInner() {
             </p>
           </div>
         </div>
-        <FilterToggles visibleTypes={visibleTypes} onToggle={handleToggleType} />
+        <div className="w-full sm:w-auto sm:ml-auto">
+          <FilterToggles visibleTypes={visibleTypes} onToggle={handleToggleType} />
+        </div>
       </header>
 
       {/* ── Canvas ── */}

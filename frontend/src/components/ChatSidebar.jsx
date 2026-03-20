@@ -164,8 +164,8 @@ export default function ChatSidebar() {
       {/* Toggle button — always visible */}
       <button
         onClick={toggleSidebar}
-        className={`fixed top-[140px] z-50 p-2 rounded-xl bg-surface/90 border border-white/[0.08] text-text-muted hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer backdrop-blur-md shadow-lg btn-press ${
-          sidebarOpen ? 'left-[288px]' : 'left-3'
+        className={`fixed top-[116px] lg:top-[140px] z-50 p-2 rounded-xl bg-surface/90 border border-white/[0.08] text-text-muted hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer backdrop-blur-md shadow-lg btn-press ${
+          sidebarOpen ? 'left-3 lg:left-[288px]' : 'left-3'
         }`}
         title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
       >
@@ -186,7 +186,7 @@ export default function ChatSidebar() {
 
       {/* Sidebar panel */}
       <aside
-        className={`fixed top-[60px] left-0 bottom-0 z-40 w-72 bg-surface border-r border-white/[0.06] flex flex-col transition-transform duration-250 ease-out ${
+        className={`fixed top-[116px] lg:top-[60px] left-0 bottom-0 z-40 w-72 bg-surface border-r border-white/[0.06] flex flex-col transition-transform duration-250 ease-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >

@@ -118,8 +118,8 @@ export default function ChatWindow() {
   return (
     <div className="flex flex-col h-full bg-gradient-subtle">
       {/* ── Header ── */}
-      <header className="flex items-center justify-between px-6 py-2.5 border-b border-white/[0.06] bg-surface/80 backdrop-blur-md flex-shrink-0 z-10">
-        <div className="flex items-center gap-3">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 sm:px-6 py-2.5 border-b border-white/[0.06] bg-surface/80 backdrop-blur-md flex-shrink-0 z-10">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/30 to-accent/20 flex items-center justify-center ring-1 ring-primary/20 flex-shrink-0">
             <Sparkles className="w-5 h-5 text-primary-light" />
           </div>
@@ -130,7 +130,7 @@ export default function ChatWindow() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 self-start sm:self-auto">
           {/* TTS toggle */}
           <button
             onClick={toggleTts}
@@ -142,7 +142,7 @@ export default function ChatWindow() {
             }`}
           >
             {ttsEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-            <span className="text-[11px] font-medium tracking-wide">
+            <span className="hidden sm:inline text-[11px] font-medium tracking-wide">
               {ttsEnabled ? 'TTS On' : 'TTS Off'}
             </span>
           </button>
