@@ -155,7 +155,7 @@ async def signup(request: SignupRequest):
 
     token = _create_jwt(user_id, request.name)
 
-    return {"token": token}
+    return {"token": token, "user_id": user_id, "name": request.name, "email": request.email}
 
 
 @app.post("/auth/login")
@@ -165,7 +165,7 @@ async def login(request: LoginRequest):
         raise HTTPException(401, "Invalid credentials")
 
     token = _create_jwt(user["user_id"], user["name"])
-    return {"token": token}
+    return {"token": token, "user_id": user["user_id"], "name": user["name"], "email": request.email}
 
 
 # ── CHAT ────────────────────────────────────────────────────
