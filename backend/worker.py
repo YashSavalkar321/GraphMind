@@ -20,8 +20,8 @@ import time
 import uuid
 from typing import Any, Callable, List, Optional
 
-from backend.memory_store import _USER_GRAPHS, update_user_graph
-from backend.vector_store import get_node_embedding
+from memory_store import _USER_GRAPHS, update_user_graph
+from vector_store import get_node_embedding
 
 logger = logging.getLogger("graphmind.worker")
 
@@ -256,7 +256,7 @@ def _run_merges(driver: Any, uid: str, nodes: List[dict], edges: List[dict]) -> 
 
         # Invalidate mindmap cache so frontend sees new nodes immediately
         try:
-            from backend.memory_ops import invalidate_cache
+            from memory_ops import invalidate_cache
             invalidate_cache(uid)
         except Exception:
             pass

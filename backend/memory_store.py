@@ -177,7 +177,7 @@ async def init_user_session(user_id: str, driver: Any) -> Tuple[int, int, float]
     Also loads/backfills vector embeddings for hybrid retrieval.
     Returns (node_count, automaton_keys_approx, elapsed_ms).
     """
-    from backend.vector_store import load_user_vectors
+    from vector_store import load_user_vectors
 
     t0 = time.perf_counter()
 
@@ -296,7 +296,7 @@ def assemble_context(nodes: List[dict], edges: List[dict]) -> str:
 async def update_user_graph(user_id: str, new_nodes: List[dict],
                              new_edges: List[dict]) -> None:
     """Incrementally patch the RAM graph + recompile automaton + update vectors."""
-    from backend.vector_store import update_user_vectors
+    from vector_store import update_user_vectors
 
     async with _STORE_LOCK:
         graph = _USER_GRAPHS.get(user_id)
@@ -340,7 +340,7 @@ def get_graph_stats(user_id: str) -> dict:
 
 
 def drop_user_session(user_id: str) -> None:
-    from backend.vector_store import drop_user_vectors
+    from vector_store import drop_user_vectors
     _USER_GRAPHS.pop(user_id, None)
     _USER_AUTOMATONS.pop(user_id, None)
     drop_user_vectors(user_id)

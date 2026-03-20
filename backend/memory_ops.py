@@ -24,8 +24,8 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
-from backend.database import get_db
-from backend.llm_service import extract_knowledge
+from database import get_db
+from llm_service import extract_knowledge
 
 logger = logging.getLogger("graphmind.memory")
 
