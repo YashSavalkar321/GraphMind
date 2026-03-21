@@ -43,6 +43,35 @@ const storedAuth = getStoredAuth();
 const EMPTY_MINDMAP = { nodes: [], edges: [] };
 const EMPTY_DOCS = [];
 
+const sameMindmapData = (left, right) => {
+  if (!left || !right) return false;
+  if ((left.nodes?.length || 0) !== (right.nodes?.length || 0)) return false;
+  if ((left.edges?.length || 0) !== (right.edges?.length || 0)) return false;
+
+  const sameNodes = (left.nodes || []).every((node, index) => {
+    const other = right.nodes?.[index];
+    return other &&
+      node.id === other.id &&
+      node.type === other.type &&
+      node.position?.x === other.position?.x &&
+      node.position?.y === other.position?.y &&
+      node.data?.label === other.data?.label &&
+      node.data?.description === other.data?.description;
+  });
+
+  if (!sameNodes) return false;
+
+  return (left.edges || []).every((edge, index) => {
+    const other = right.edges?.[index];
+    return other &&
+      edge.id === other.id &&
+      edge.source === other.source &&
+      edge.target === other.target &&
+      edge.label === other.label &&
+      edge.animated === other.animated;
+  });
+};
+
 const useAppStore = create((set, get) => ({
   // ──────────────── Auth state ────────────────
   isAuthenticated: !!storedAuth,
@@ -76,6 +105,7 @@ const useAppStore = create((set, get) => ({
         isAuthenticated: true,
         authUser: user,
         currentUserId: data.user_id,
+        mindmapVersions: {},
         authLoading: false,
       });
       get().fetchMindmap();
@@ -111,6 +141,7 @@ const useAppStore = create((set, get) => ({
         isAuthenticated: true,
         authUser: user,
         currentUserId: data.user_id,
+        mindmapVersions: {},
         authLoading: false,
       });
       get().fetchMindmap();
@@ -131,6 +162,7 @@ const useAppStore = create((set, get) => ({
       activeChatId: null,
       selectedNode: null,
       highlightedNodeId: null,
+      mindmapVersions: {},
     });
   },
 
@@ -312,6 +344,7 @@ const useAppStore = create((set, get) => ({
 
   // ──────────────── Mindmap state ────────────────
   mindmapData: {},
+  mindmapVersions: {},
 
   getMindmapForCurrentUser: () => {
     const { mindmapData, currentUserId } = get();
@@ -334,13 +367,62 @@ const useAppStore = create((set, get) => ({
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      set((s) => ({ mindmapData: { ...s.mindmapData, [currentUserId]: data } }));
+      const version = Number(data.version || 0);
+      set((s) => {
+        const nextGraph = { ...data, version };
+        const previous = s.mindmapData[currentUserId];
+        if (sameMindmapData(previous, nextGraph)) {
+          return version > (s.mindmapVersions[currentUserId] || 0)
+            ? { mindmapVersions: { ...s.mindmapVersions, [currentUserId]: version } }
+            : {};
+        }
+        return {
+          mindmapData: { ...s.mindmapData, [currentUserId]: nextGraph },
+          mindmapVersions: { ...s.mindmapVersions, [currentUserId]: version },
+        };
+      });
     } catch (err) {
       console.warn('fetchMindmap: API unavailable, using local data', err.message);
     }
   },
 
   // ──────────────── Node selection & highlight ────────────────
+  fetchMemoryVersion: async () => {
+    const { currentUserId } = get();
+    if (!currentUserId) return 0;
+    try {
+      const res = await fetch(`${API}/memory/version?user_id=${currentUserId}`, {
+        headers: { ...authHeaders() },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const version = Number(data.version || 0);
+      set((s) => ({
+        mindmapVersions: {
+          ...s.mindmapVersions,
+          [currentUserId]: Math.max(version, s.mindmapVersions[currentUserId] || 0),
+        },
+      }));
+      return version;
+    } catch (err) {
+      console.warn('fetchMemoryVersion failed:', err.message);
+      return 0;
+    }
+  },
+
+  waitForMindmapUpdate: async (baselineVersion = 0, attempts = 8, intervalMs = 250) => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const version = await get().fetchMemoryVersion();
+      if (version > baselineVersion) {
+        await get().fetchMindmap();
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    await get().fetchMindmap();
+    return false;
+  },
+
   selectedNode: null,
   setSelectedNode: (nodeId) => set({ selectedNode: nodeId }),
 
@@ -382,6 +464,7 @@ const useAppStore = create((set, get) => ({
 
   sendMessage: async (query) => {
     const { currentUserId, messages, activeChatId, chatHistory } = get();
+    const baselineMindmapVersion = get().mindmapVersions[currentUserId] || 0;
 
     // Auto-create a chat session if none exists
     if (!activeChatId) {
@@ -423,6 +506,18 @@ const useAppStore = create((set, get) => ({
 
     // ── Call backend with SSE streaming (fall back to non-stream, then mock) ──
     const aiMsgId = `msg_${Date.now() + 1}`;
+    const aiMessage = {
+      id: aiMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      retrieval_time_ms: null,
+      memory_citations: [],
+      broad_query: false,
+      streaming: true,
+    };
+    set((s) => ({ messages: [...s.messages, aiMessage], isTyping: false }));
+
     try {
       const res = await fetch(`${API}/chat/stream`, {
         method: 'POST',
@@ -430,19 +525,6 @@ const useAppStore = create((set, get) => ({
         body: JSON.stringify({ user_id: currentUserId, query }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      // Add empty AI message bubble immediately
-      const aiMessage = {
-        id: aiMsgId,
-        role: 'assistant',
-        content: '',
-        timestamp: new Date().toISOString(),
-        retrieval_time_ms: null,
-        memory_citations: [],
-        broad_query: false,
-        streaming: true,
-      };
-      set((s) => ({ messages: [...s.messages, aiMessage], isTyping: false }));
 
       // Read SSE stream
       const reader = res.body.getReader();
@@ -511,7 +593,7 @@ const useAppStore = create((set, get) => ({
       const activeChat = get().chatHistory.find((c) => c.id === get().activeChatId);
       if (activeChat) get()._saveChat(activeChat);
       // Refresh mindmap — ingest already ran server-side before streaming started
-      get().fetchMindmap();
+      void get().waitForMindmapUpdate(baselineMindmapVersion);
     } catch (err) {
       console.warn('stream API unavailable, falling back:', err.message);
 
@@ -553,8 +635,9 @@ const useAppStore = create((set, get) => ({
       });
       // Persist fallback chat to backend too
       const activeChat = get().chatHistory.find((c) => c.id === get().activeChatId);
-      if (activeChat) get()._saveChat(activeChat);      // Refresh mindmap after fallback response
-      get().fetchMindmap();    }
+      if (activeChat) get()._saveChat(activeChat);
+      void get().waitForMindmapUpdate(baselineMindmapVersion);
+    }
   },
 
   // ──────────────── Ingest state ────────────────

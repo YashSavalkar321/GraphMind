@@ -20,8 +20,8 @@ import time
 import uuid
 from typing import Any, Callable, List, Optional
 
-from memory_store import _USER_GRAPHS, update_user_graph
-from vector_store import get_node_embedding
+from backend.memory_store import _USER_GRAPHS, update_user_graph
+from backend.vector_store import get_node_embedding
 
 logger = logging.getLogger("graphmind.worker")
 
@@ -220,15 +220,21 @@ def _run_merges(driver: Any, uid: str, nodes: List[dict], edges: List[dict]) -> 
                         "MERGE (u)-[:HAS_CATEGORY]->(cat) "
                         "MERGE (e:Entity {name: $name, user_id: $uid}) "
                         "  ON CREATE SET e.type = $etype, e.category = $category, "
-                        "               e.last_accessed = datetime() "
+                        "               e.last_accessed = datetime(), "
+                        "               e.snippet = $snippet, e.display = $display "
                         "  ON MATCH SET e.last_accessed = datetime(), "
-                        "              e.category = $category "
+                        "              e.category = $category, "
+                        "              e.type = $etype, "
+                        "              e.snippet = CASE WHEN $snippet <> '' THEN $snippet ELSE e.snippet END, "
+                        "              e.display = CASE WHEN $display <> '' THEN $display ELSE e.display END "
                         "MERGE (cat)-[:CONTAINS]->(e)",
                         {
                             "uid": uid,
                             "name": name,
                             "category": domain,
                             "etype": node_category.capitalize(),
+                            "snippet": n.get("snippet", ""),
+                            "display": n.get("display") or n["name"],
                         },
                     )
                 else:
@@ -256,7 +262,7 @@ def _run_merges(driver: Any, uid: str, nodes: List[dict], edges: List[dict]) -> 
 
         # Invalidate mindmap cache so frontend sees new nodes immediately
         try:
-            from memory_ops import invalidate_cache
+            from backend.memory_ops import invalidate_cache
             invalidate_cache(uid)
         except Exception:
             pass

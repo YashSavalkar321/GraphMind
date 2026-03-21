@@ -24,8 +24,9 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
-from database import get_db
-from llm_service import extract_knowledge
+from backend.database import get_db
+from backend.llm_service import extract_knowledge
+from backend.memory_store import touch_user_memory_version
 
 logger = logging.getLogger("graphmind.memory")
 
@@ -350,6 +351,7 @@ async def ingest_to_graph(user_id: str, text: str) -> Dict[str, Any]:
 
     # Invalidate cache for this user
     invalidate_cache(user_id)
+    touch_user_memory_version(user_id)
 
     logger.info(
         "Ingested for user=%s: %d entities, %d facts, %d rels  [batched]",
@@ -678,11 +680,11 @@ def get_user_graph(user_id: str) -> Dict[str, Any]:
             "(cat:Category {user_id: $uid})-[:CONTAINS]->(e:Entity {user_id: $uid}) "
             "OPTIONAL MATCH (e)-[:HAS_FACT]->(f:Fact {user_id: $uid}) "
             "WITH cat, e, count(f) AS fact_count, "
-            "     collect(COALESCE(f.snippet, f.content, f.name, ''))[0] AS first_snippet "
+            "     collect(COALESCE(f.snippet, f.content, f.name, '')) AS fact_snippets "
             "RETURN cat.name AS category, e.name AS entity, "
             "       COALESCE(e.type, 'Entity') AS etype, "
             "       fact_count, e.last_accessed AS accessed, "
-            "       COALESCE(first_snippet, '') AS snippet",
+            "       COALESCE(e.snippet, head([s IN fact_snippets WHERE s <> '']), '') AS snippet",
             {"uid": user_id},
         )
         rel_records = db.execute_query(

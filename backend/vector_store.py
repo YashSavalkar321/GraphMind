@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -26,6 +27,8 @@ logger = logging.getLogger("graphmind.vector_store")
 
 _model: Any = None
 _EMBED_DIM = 384  # all-MiniLM-L6-v2 output dimension
+_QUERY_EMBED_CACHE: "OrderedDict[str, np.ndarray]" = OrderedDict()
+_QUERY_EMBED_CACHE_MAX = 512
 
 
 def warm_model() -> None:
@@ -50,6 +53,23 @@ def _embed_text(text: str) -> np.ndarray:
         return np.zeros(_EMBED_DIM, dtype=np.float32)
     vec = _model.encode(text, normalize_embeddings=True, show_progress_bar=False)
     return vec.astype(np.float32)
+
+
+def _embed_query_cached(text: str) -> np.ndarray:
+    key = " ".join((text or "").strip().lower().split())
+    if not key:
+        return np.zeros(_EMBED_DIM, dtype=np.float32)
+
+    cached = _QUERY_EMBED_CACHE.get(key)
+    if cached is not None:
+        _QUERY_EMBED_CACHE.move_to_end(key)
+        return cached
+
+    vec = _embed_text(text)
+    _QUERY_EMBED_CACHE[key] = vec
+    if len(_QUERY_EMBED_CACHE) > _QUERY_EMBED_CACHE_MAX:
+        _QUERY_EMBED_CACHE.popitem(last=False)
+    return vec
 
 
 def _embed_batch(texts: List[str]) -> np.ndarray:
@@ -209,7 +229,7 @@ def vector_search(
     if uv is None or uv.matrix is None or len(uv.ids) == 0:
         return []
 
-    query_vec = _embed_text(query)
+    query_vec = _embed_query_cached(query)
     if np.linalg.norm(query_vec) < 1e-9:
         return []
 

@@ -66,6 +66,7 @@ class _UserGraph:
 
 _USER_GRAPHS:     Dict[str, _UserGraph] = {}
 _USER_AUTOMATONS: Dict[str, Any]         = {}
+_USER_MEMORY_VERSIONS: Dict[str, int]    = {}
 _STORE_LOCK = asyncio.Lock()
 
 
@@ -177,7 +178,7 @@ async def init_user_session(user_id: str, driver: Any) -> Tuple[int, int, float]
     Also loads/backfills vector embeddings for hybrid retrieval.
     Returns (node_count, automaton_keys_approx, elapsed_ms).
     """
-    from vector_store import load_user_vectors
+    from backend.vector_store import load_user_vectors
 
     t0 = time.perf_counter()
 
@@ -192,6 +193,10 @@ async def init_user_session(user_id: str, driver: Any) -> Tuple[int, int, float]
     async with _STORE_LOCK:
         _USER_GRAPHS[user_id]     = graph
         _USER_AUTOMATONS[user_id] = automaton
+        _USER_MEMORY_VERSIONS[user_id] = max(
+            _USER_MEMORY_VERSIONS.get(user_id, 0),
+            int(time.time() * 1000),
+        )
 
     # Load vector index (backfills missing embeddings asynchronously)
     await load_user_vectors(user_id, graph.nodes, neo4j_embeddings, driver)
@@ -296,7 +301,7 @@ def assemble_context(nodes: List[dict], edges: List[dict]) -> str:
 async def update_user_graph(user_id: str, new_nodes: List[dict],
                              new_edges: List[dict]) -> None:
     """Incrementally patch the RAM graph + recompile automaton + update vectors."""
-    from vector_store import update_user_vectors
+    from backend.vector_store import update_user_vectors
 
     async with _STORE_LOCK:
         graph = _USER_GRAPHS.get(user_id)
@@ -304,13 +309,25 @@ async def update_user_graph(user_id: str, new_nodes: List[dict],
             return
         for n in new_nodes:
             nid = (n.get("node_id") or n.get("name") or "").lower()
-            if nid and nid not in graph.nodes:
+            if not nid:
+                continue
+            if nid not in graph.nodes:
                 graph.add_node(nid,
                     display  = n.get("display") or n.get("name") or nid,
                     category = n.get("category") or "entity",
                     domain   = n.get("domain") or "General",
                     snippet  = n.get("snippet") or "",
                 )
+            else:
+                props = graph.nodes[nid]
+                if n.get("display"):
+                    props["display"] = n["display"]
+                if n.get("category"):
+                    props["category"] = n["category"]
+                if n.get("domain"):
+                    props["domain"] = n["domain"]
+                if n.get("snippet"):
+                    props["snippet"] = n["snippet"]
         for e in new_edges:
             src = (e.get("source") or "").lower()
             tgt = (e.get("target") or "").lower()
@@ -322,6 +339,7 @@ async def update_user_graph(user_id: str, new_nodes: List[dict],
                     is_directional = bool(e.get("is_directional", True)),
                 )
         _USER_AUTOMATONS[user_id] = _build_automaton(graph)
+        _USER_MEMORY_VERSIONS[user_id] = int(time.time() * 1000)
 
     # Update vector index with new nodes (outside lock — vector_store has its own)
     if new_nodes:
@@ -339,8 +357,19 @@ def get_graph_stats(user_id: str) -> dict:
     }
 
 
+def touch_user_memory_version(user_id: str) -> int:
+    version = int(time.time() * 1000)
+    _USER_MEMORY_VERSIONS[user_id] = version
+    return version
+
+
+def get_user_memory_version(user_id: str) -> int:
+    return _USER_MEMORY_VERSIONS.get(user_id, 0)
+
+
 def drop_user_session(user_id: str) -> None:
-    from vector_store import drop_user_vectors
+    from backend.vector_store import drop_user_vectors
     _USER_GRAPHS.pop(user_id, None)
     _USER_AUTOMATONS.pop(user_id, None)
+    _USER_MEMORY_VERSIONS.pop(user_id, None)
     drop_user_vectors(user_id)

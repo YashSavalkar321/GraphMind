@@ -261,6 +261,7 @@ class ReactFlowMindmapResponse(BaseModel):
     """React Flow graph payload returned by GET /memory/mindmap."""
     nodes: List[ReactFlowNode] = Field(default_factory=list)
     edges: List[ReactFlowEdge] = Field(default_factory=list)
+    version: int = Field(default=0, description="Monotonic memory graph version.")
 
 
 # ── Chat Session Persistence Models ─────────────────────────────
