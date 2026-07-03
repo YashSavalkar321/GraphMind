@@ -4,8 +4,11 @@ import {
   simulateIngest,
 } from '../data/mockData';
 
-// ── API base path (Vite proxy: /api → http://localhost:8000) ──
-const API = '/api';
+// ── API base path ──
+// Dev:  unset → '/api' (Vite proxy rewrites /api → backend, see vite.config.js).
+// Prod: set VITE_API_URL to the deployed backend origin (e.g. https://api.example.com),
+//       no trailing slash and no '/api' suffix — backend routes live at the root.
+const API = import.meta.env.VITE_API_URL || '/api';
 
 // ── JWT helpers ──
 const getStoredAuth = () => {

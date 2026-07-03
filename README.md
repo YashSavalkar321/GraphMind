@@ -1,6 +1,19 @@
+---
+title: GraphMind API
+emoji: 🧠
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # GraphMind
 
 > Memory-grounded AI chat with a personal knowledge graph — built with React + FastAPI + Neo4j + Groq/Gemini.
+>
+> **This Space hosts the backend API only** (Docker, built from the root `Dockerfile`).
+> The React frontend is deployed separately (Vercel). See `DEPLOY.md`.
 
 ---
 

@@ -1,6 +1,9 @@
 # Environment
 .env
 .env.*
+# ...but keep the committed templates
+!.env.example
+!**/.env.example
 
 # Python
 __pycache__/
@@ -19,6 +22,7 @@ frontend/dist/
 # IDE
 .vscode/
 .idea/
+.claude/
 
 # OS
 .DS_Store

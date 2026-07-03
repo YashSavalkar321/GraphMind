@@ -1,0 +1,33 @@
+# ── Python ──
+venv/
+.venv/
+**/venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# ── Node / Vite ──
+node_modules/
+**/node_modules/
+frontend/dist/
+.vite/
+
+# ── Secrets & local config ──
+.env
+.env.*
+!.env.example
+
+# ── Git / IDE / OS ──
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Misc ──
+*.log
+Problem Statement 1.pdf
+README.md

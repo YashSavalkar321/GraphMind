@@ -81,6 +81,42 @@ logging.basicConfig(
 )
 logger = logging.getLogger("graphmind.api")
 
+
+# ── Environment / Deployment configuration ──────────────────────
+
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+IS_PRODUCTION = APP_ENV in {"production", "prod"}
+
+# Default JWT secrets that must never be used in production.
+_DEFAULT_JWT_SECRETS = {
+    "graphmind-change-me-in-prod",
+    "graphmind-super-secret-key-change-in-production",
+}
+
+
+def _resolve_cors() -> "tuple[list[str], bool]":
+    """Resolve CORS allow-origins from the ``CORS_ORIGINS`` env var.
+
+    - unset            → dev defaults (Vite dev server), credentials enabled.
+    - ``"*"``          → allow all origins, credentials DISABLED (spec-compliant:
+                          wildcard origin + credentials is rejected by browsers).
+    - ``"a.com,b.com"``→ explicit comma-separated origins, credentials enabled.
+    """
+    raw = os.getenv("CORS_ORIGINS", "").strip()
+    if raw == "*":
+        return ["*"], False
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()], True
+    return ["http://localhost:5173", "http://127.0.0.1:5173"], True
+
+
+CORS_ALLOW_ORIGINS, CORS_ALLOW_CREDENTIALS = _resolve_cors()
+
+
 _MATCH_STOP_WORDS = {
     "the", "and", "for", "with", "that", "this", "from", "have", "your",
     "about", "into", "what", "when", "where", "which", "their", "there",
@@ -312,6 +348,21 @@ async def lifespan(app: FastAPI):
     _load_users_from_neo4j()
     # Eager-load embedding model for hybrid retrieval
     _warm_embedding_model()
+    # ── Deployment sanity checks ──
+    logger.info(
+        "Config: APP_ENV=%s | CORS origins=%s (credentials=%s)",
+        APP_ENV, CORS_ALLOW_ORIGINS, CORS_ALLOW_CREDENTIALS,
+    )
+    if IS_PRODUCTION and JWT_SECRET in _DEFAULT_JWT_SECRETS:
+        logger.warning(
+            "⚠️  JWT_SECRET is a known default value while APP_ENV=production — "
+            "set a strong, unique JWT_SECRET or all issued tokens are forgeable."
+        )
+    if IS_PRODUCTION and CORS_ALLOW_ORIGINS == ["*"]:
+        logger.warning(
+            "⚠️  CORS is open to all origins (*) in production — "
+            "set CORS_ORIGINS to your frontend origin."
+        )
     logger.info("GraphMind backend started ✓  (CQRS in-memory engine + hybrid retrieval ready)")
     yield
     db.close_driver()
@@ -495,8 +546,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1514,4 +1565,14 @@ async def root():
         "health": "/health",
         "note": "Frontend runs on http://localhost:5173 (Vite dev server)",
     }
+
+
+# ── Entrypoint ─────────────────────────────────────────────────
+# Convenience launcher: `python -m backend.main` (run from the repo root).
+# Production platforms should use the Procfile command instead:
+#   uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 
