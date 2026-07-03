@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { MessageSquare, Network, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import Navbar from './components/Navbar';
@@ -52,16 +52,25 @@ function App() {
 
   return (
     <div className="h-dvh w-screen flex flex-col overflow-hidden bg-bg">
+      {/* ── Ambient background: aurora blobs + blueprint grid + noise ── */}
+      <div className="aurora-layer" aria-hidden="true">
+        <div className="aurora-blob aurora-a" />
+        <div className="aurora-blob aurora-b" />
+        <div className="aurora-blob aurora-c" />
+        <div className="bg-grid-overlay" />
+        <div className="bg-noise" />
+      </div>
+
       <Navbar />
       <ChatSidebar />
 
-      {/* Mobile Tabs: Added border-transparent to inactive state to prevent layout shift */}
-      <div className="lg:hidden flex border-b border-white/[0.06] bg-surface flex-shrink-0 z-20">
+      {/* Mobile Tabs */}
+      <div className="lg:hidden flex border-b border-white/[0.06] glass flex-shrink-0 z-20">
         <button
           onClick={() => setActiveView('chat')}
           className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-sm font-semibold transition-all cursor-pointer border-b-2 ${
             activeView === 'chat'
-              ? 'text-primary-light border-primary bg-primary/5'
+              ? 'text-primary-light border-primary bg-primary/10'
               : 'text-text-muted border-transparent hover:text-text-primary hover:bg-white/[0.02]'
           }`}
         >
@@ -72,7 +81,7 @@ function App() {
           onClick={() => setActiveView('graph')}
           className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-sm font-semibold transition-all cursor-pointer border-b-2 ${
             activeView === 'graph'
-              ? 'text-primary-light border-primary bg-primary/5'
+              ? 'text-secondary-light border-secondary bg-secondary/10'
               : 'text-text-muted border-transparent hover:text-text-primary hover:bg-white/[0.02]'
           }`}
         >
@@ -97,7 +106,7 @@ function App() {
           <ChatWindow />
         </div>
 
-        {/* Resize Gutter: Wider invisible hit-area (w-4) with a visual 1px line */}
+        {/* Resize Gutter */}
         {!graphHidden && (
           <div
             onMouseDown={startDrag}
@@ -105,7 +114,13 @@ function App() {
             className="hidden lg:flex items-center justify-center w-4 -ml-2 -mr-2 cursor-col-resize group flex-shrink-0 relative z-30"
             title="Drag to resize panels"
           >
-            <div className="w-[1px] h-full bg-white/[0.06] group-hover:bg-primary/50 group-active:bg-primary transition-colors shadow-[0_0_10px_rgba(0,0,0,0.5)]" />
+            <div className="w-[1px] h-full bg-white/[0.07] group-hover:bg-primary/60 group-active:bg-primary transition-colors group-hover:shadow-[0_0_12px_rgba(99,102,241,0.5)]" />
+            {/* Grip dots */}
+            <div className="absolute top-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="w-[3px] h-[3px] rounded-full bg-primary-light" />
+              <div className="w-[3px] h-[3px] rounded-full bg-primary-light" />
+              <div className="w-[3px] h-[3px] rounded-full bg-primary-light" />
+            </div>
           </div>
         )}
 
@@ -123,21 +138,16 @@ function App() {
           </ReactFlowProvider>
         </div>
 
-        {/* Graph Toggle Button: Always visible outside the graph panel */}
+        {/* Graph collapse toggle */}
         <button
           onClick={() => setGraphHidden(!graphHidden)}
-          className="hidden lg:flex absolute top-20 right-4 z-[60] items-center justify-center p-2 rounded-lg bg-surface/90 border border-white/[0.08] text-text-muted hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer backdrop-blur-md shadow-xl btn-press"
+          title={graphHidden ? 'Show mind map' : 'Hide mind map'}
+          className="hidden lg:flex absolute top-20 right-4 z-[60] items-center justify-center p-2 rounded-xl glass-panel text-text-muted hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer btn-press"
         >
           {graphHidden ? (
-            <>
-              <PanelRightOpen className="w-4 h-4" />
-              <span className="font-semibold"></span>
-            </>
+            <PanelRightOpen className="w-4 h-4" />
           ) : (
-            <>
-              <PanelRightClose className="w-4 h-4" />
-              <span className="font-semibold"></span>
-            </>
+            <PanelRightClose className="w-4 h-4" />
           )}
         </button>
       </div>

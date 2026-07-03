@@ -1,5 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Bot, Sparkles, MessageCircle, ArrowDown, Zap, Volume2, VolumeX, Square } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Send,
+  Bot,
+  Sparkles,
+  ArrowDown,
+  Zap,
+  Volume2,
+  VolumeX,
+  Square,
+  BrainCircuit,
+  Bookmark,
+  UserRound,
+  FileText,
+  Network,
+  GitBranch,
+  CornerDownLeft,
+} from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 import PerformanceTimer from './PerformanceTimer';
 import CitationBadge from './CitationBadge';
@@ -12,7 +29,7 @@ export default function ChatWindow() {
   const currentUser = useAppStore((s) => s.getCurrentUser());
   const ttsEnabled = useAppStore((s) => s.ttsEnabled);
   const toggleTts = useAppStore((s) => s.toggleTts);
-  
+
   const [input, setInput] = useState('');
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [speakingMsgId, setSpeakingMsgId] = useState(null);
@@ -55,11 +72,9 @@ export default function ChatWindow() {
 
   const handleSpeak = useCallback((msg) => {
     if (speakingMsgId === msg.id) {
-      // Currently speaking this message → stop
       SpeechHelper.stop();
       setSpeakingMsgId(null);
     } else {
-      // Speak this message
       setSpeakingMsgId(msg.id);
       SpeechHelper.speak(msg.content, {
         onEnd: () => setSpeakingMsgId(null),
@@ -116,17 +131,18 @@ export default function ChatWindow() {
   const charCount = input.length;
 
   return (
-    <div className="flex flex-col h-full bg-gradient-subtle">
+    <div className="flex flex-col h-full bg-gradient-subtle relative">
       {/* ── Header ── */}
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 sm:px-6 py-2.5 border-b border-white/[0.06] bg-surface/80 backdrop-blur-md flex-shrink-0 z-10">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 sm:px-6 py-2.5 border-b border-white/[0.06] glass flex-shrink-0 z-10">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/30 to-accent/20 flex items-center justify-center ring-1 ring-primary/20 flex-shrink-0">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-primary/30 via-accent/20 to-transparent flex items-center justify-center ring-1 ring-primary/25 flex-shrink-0 shadow-[0_0_18px_rgba(99,102,241,0.25)]">
             <Sparkles className="w-5 h-5 text-primary-light" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-base font-bold text-text-primary tracking-tight">Chat</h2>
+            <h2 className="font-display text-base font-bold text-text-primary tracking-tight">Chat</h2>
             <p className="text-[11px] text-text-secondary mt-0.5 truncate">
-              Memory-grounded AI &bull; <span className="text-primary-light font-medium">{currentUser?.name || 'Guest'}</span>
+              Memory-grounded AI &bull;{' '}
+              <span className="text-primary-light font-medium">{currentUser?.name || 'Guest'}</span>
             </p>
           </div>
         </div>
@@ -137,7 +153,7 @@ export default function ChatWindow() {
             title={ttsEnabled ? 'Disable auto-speak' : 'Enable auto-speak'}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all duration-200 cursor-pointer ${
               ttsEnabled
-                ? 'bg-primary/15 border-primary/30 text-primary-light'
+                ? 'bg-primary/15 border-primary/35 text-primary-light shadow-[0_0_14px_rgba(99,102,241,0.25)]'
                 : 'bg-white/[0.03] border-white/[0.08] text-text-muted hover:text-text-secondary hover:border-white/[0.15]'
             }`}
           >
@@ -146,9 +162,13 @@ export default function ChatWindow() {
               {ttsEnabled ? 'TTS On' : 'TTS Off'}
             </span>
           </button>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/20">
-            <div className="w-2 h-2 rounded-full bg-success shadow-sm shadow-success/50 animate-pulse" />
-            <span className="text-[11px] text-success font-medium tracking-wide">Online</span>
+          {/* Live status */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/25 shadow-[0_0_14px_rgba(52,211,153,0.15)]">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-60" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+            </span>
+            <span className="text-[11px] text-success font-semibold tracking-wide">Online</span>
           </div>
         </div>
       </header>
@@ -157,65 +177,28 @@ export default function ChatWindow() {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-8 space-y-8 relative"
+        className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-8 space-y-7 relative"
       >
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-start min-h-full text-center animate-fade-in py-8">
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/10 flex items-center justify-center mb-6 animate-float ring-1 ring-primary/15">
-              <Bot className="w-10 h-10 text-primary-light" />
-            </div>
-            <h3 className="text-xl sm:text-2xl font-bold gradient-text mb-3">Welcome to GraphMind</h3>
-            <p className="text-sm text-text-secondary max-w-md leading-relaxed mb-8 px-4">
-              Ask questions about your ingested documents. Every answer is grounded in your personal
-              knowledge graph with <span className="text-accent font-medium">memory citations</span> and{' '}
-              <span className="text-success font-medium">retrieval metrics</span>.
-            </p>
-            <div className="w-full max-w-lg">
-              <p className="text-xs uppercase tracking-widest text-text-muted/70 font-bold mb-4 flex items-center justify-center gap-2">
-                <Zap className="w-4 h-4 text-warning" />
-                Try asking
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {getSuggestions().map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      setInput(s);
-                      inputRef.current?.focus();
-                    }}
-                    className="group text-left p-4 rounded-xl bg-surface-light/40 border border-surface-lighter/50 text-sm text-text-secondary hover:text-text-primary hover:border-primary/40 hover:bg-primary/10 transition-all duration-200 cursor-pointer shadow-sm"
-                  >
-                    <MessageCircle className="w-4 h-4 text-primary/50 group-hover:text-primary-light mb-2 transition-colors" />
-                    <span className="leading-snug block">{s}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+        {messages.length === 0 && <WelcomeHero onPick={(s) => { setInput(s); inputRef.current?.focus(); }} />}
 
         {/* Message list */}
-        {messages.map((msg, idx) => (
-          <div
+        {messages.map((msg) => (
+          <motion.div
             key={msg.id}
-            className={`flex gap-4 ${
-              msg.role === 'user' ? 'justify-end animate-slide-in-right' : 'justify-start animate-fade-in'
-            }`}
-            style={{ animationDelay: `${idx * 30}ms` }}
+            initial={{ opacity: 0, y: 16, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+            className={`flex gap-3.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            {msg.role === 'assistant' && (
-              <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-primary/25 to-accent/15 flex items-center justify-center mt-1 ring-1 ring-primary/20 shadow-md">
-                <Bot className="w-5 h-5 text-primary-light" />
-              </div>
-            )}
+            {msg.role === 'assistant' && <AssistantAvatar speaking={speakingMsgId === msg.id} />}
 
             <div className={`max-w-[85%] md:max-w-[75%] flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               {/* Message bubble */}
               <div
-                className={`w-fit ${
+                className={`w-fit overflow-hidden ${
                   msg.role === 'user'
-                    ? 'bg-surface-lighter/80 border border-surface-lighter rounded-2xl rounded-tr-sm px-5 py-3.5 shadow-md'
-                    : 'bg-surface-light rounded-2xl rounded-tl-sm border border-white/[0.08] shadow-lg'
+                    ? 'bubble-user rounded-3xl rounded-tr-md px-5 py-3.5'
+                    : 'bubble-assistant rounded-3xl rounded-tl-md'
                 }`}
               >
                 <div className={msg.role === 'assistant' ? 'px-5 pt-4 pb-3' : ''}>
@@ -226,22 +209,22 @@ export default function ChatWindow() {
                   >
                     {msg.role === 'assistant' ? renderContent(msg.content) : msg.content}
                     {msg.role === 'assistant' && msg.streaming && (
-                      <span className="inline-block w-[2px] h-[1em] bg-primary-light ml-0.5 animate-pulse align-text-bottom" />
+                      <span className="inline-block w-[2.5px] h-[1.05em] rounded-full bg-gradient-to-b from-primary-light to-accent-light ml-1 animate-pulse align-text-bottom" />
                     )}
                   </p>
                 </div>
 
-                {/* Citations & Metrics isolated in a footer section */}
+                {/* Citations & metrics footer */}
                 {msg.role === 'assistant' && !msg.streaming && msg.content && (
-                  <div className="bg-white/[0.03] px-5 py-3.5 border-t border-white/[0.06] rounded-b-2xl flex flex-col gap-3 items-start">
-                    <div className="flex items-center justify-between w-full">
+                  <div className="bg-white/[0.025] px-5 py-3.5 border-t border-white/[0.06] flex flex-col gap-3 items-start">
+                    <div className="flex items-center justify-between w-full gap-3">
                       <PerformanceTimer timeMs={msg.retrieval_time_ms} />
                       <button
                         onClick={() => handleSpeak(msg)}
                         title={speakingMsgId === msg.id ? 'Stop speaking' : 'Read aloud'}
-                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all duration-200 cursor-pointer ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all duration-200 cursor-pointer ${
                           speakingMsgId === msg.id
-                            ? 'bg-primary/20 text-primary-light border border-primary/30'
+                            ? 'bg-primary/20 text-primary-light border border-primary/35 shadow-[0_0_12px_rgba(99,102,241,0.3)]'
                             : 'bg-white/[0.04] text-text-muted hover:text-text-secondary hover:bg-white/[0.08] border border-transparent'
                         }`}
                       >
@@ -257,10 +240,10 @@ export default function ChatWindow() {
                 )}
               </div>
 
-              {/* Timestamp outside the bubble */}
+              {/* Timestamp */}
               <p
-                className={`text-[10px] mt-1.5 px-2 ${
-                  msg.role === 'user' ? 'text-text-muted/50 text-right' : 'text-text-muted/50 pl-6'
+                className={`text-[10px] mt-1.5 px-2 text-text-muted/50 ${
+                  msg.role === 'user' ? 'text-right' : 'pl-4'
                 }`}
               >
                 {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -269,73 +252,221 @@ export default function ChatWindow() {
 
             {msg.role === 'user' && (
               <div
-                className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center mt-1 text-sm font-bold text-white shadow-md ring-2 ring-surface"
-                style={{ backgroundColor: currentUser?.color || '#6366f1' }}
+                className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center mt-1 text-[13px] font-bold text-white shadow-[0_4px_16px_rgba(99,102,241,0.35)] ring-2 ring-white/15 bg-gradient-to-br from-indigo-500 to-violet-600"
+                style={currentUser?.color ? { background: `linear-gradient(135deg, ${currentUser.color}, #8b5cf6)` } : undefined}
               >
                 {currentUser?.avatar || 'U'}
               </div>
             )}
-          </div>
+          </motion.div>
         ))}
 
+        {/* Typing indicator */}
         {isTyping && (
-          <div className="flex gap-4 animate-fade-in">
-            <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-primary/25 to-accent/15 flex items-center justify-center ring-1 ring-primary/20">
-              <Bot className="w-5 h-5 text-primary-light" />
-            </div>
-            <div className="bg-surface-light rounded-2xl rounded-tl-sm px-6 py-4 border border-white/[0.08] shadow-lg w-24 flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex gap-3.5"
+          >
+            <AssistantAvatar thinking />
+            <div className="bubble-assistant rounded-3xl rounded-tl-md px-6 py-4 flex items-center gap-3">
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
-                <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
-                <div className="w-2 h-2 rounded-full bg-primary-light typing-dot" />
+                <div className="w-2 h-2 rounded-full bg-gradient-to-br from-primary-light to-accent-light typing-dot" />
+                <div className="w-2 h-2 rounded-full bg-gradient-to-br from-primary-light to-accent-light typing-dot" />
+                <div className="w-2 h-2 rounded-full bg-gradient-to-br from-primary-light to-accent-light typing-dot" />
               </div>
+              <span className="text-[11px] text-text-muted font-medium">searching memory…</span>
             </div>
-          </div>
+          </motion.div>
         )}
 
         <div ref={messagesEndRef} className="h-4" />
       </div>
 
-      {/* ── Input Area ── */}
-      <footer className="px-4 sm:px-6 pt-4 pb-6 bg-surface border-t border-surface-lighter/30 flex-shrink-0 z-10">
-        <div className="max-w-4xl mx-auto relative">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask about your memories..."
-            rows={1}
-            className="w-full bg-surface-light/50 border border-surface-lighter/50 rounded-2xl pl-5 pr-14 py-3.5 text-sm text-text-primary placeholder-text-muted/60 resize-none focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all leading-relaxed"
-            style={{ minHeight: '48px', maxHeight: '150px' }}
-            onInput={(e) => {
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
-            }}
-          />
-          {charCount > 0 && (
-            <span className="absolute right-14 bottom-3 text-[10px] text-text-muted/40 font-mono">
-              {charCount}
-            </span>
-          )}
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isTyping}
-            className="absolute right-2.5 bottom-2 mb-2 w-9 h-9 flex items-center justify-center rounded-xl bg-primary hover:bg-primary-light disabled:bg-surface-lighter disabled:opacity-40 disabled:cursor-not-allowed text-white transition-all cursor-pointer"
+      {/* Scroll-to-bottom */}
+      <AnimatePresence>
+        {showScrollBtn && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 8 }}
+            onClick={scrollToBottom}
+            className="absolute bottom-32 left-1/2 -translate-x-1/2 z-20 w-9 h-9 rounded-full glass-panel flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-primary/40 cursor-pointer"
+            title="Scroll to bottom"
           >
-            <Send className=" w-4 h-4" />
-          </button>
+            <ArrowDown className="w-4 h-4" />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* ── Input: floating command bar ── */}
+      <footer className="px-4 sm:px-6 pt-2 pb-4 flex-shrink-0 z-10">
+        <div className="max-w-4xl mx-auto">
+          <div className="command-bar rounded-3xl flex items-end gap-2 pl-5 pr-2.5 py-2.5">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about your memories…"
+              rows={1}
+              className="flex-1 bg-transparent border-none text-sm text-text-primary placeholder-text-muted/60 resize-none focus:outline-none leading-relaxed py-1.5"
+              style={{ minHeight: '32px', maxHeight: '150px' }}
+              onInput={(e) => {
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+              }}
+            />
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={handleSend}
+              disabled={!input.trim() || isTyping}
+              className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-2xl btn-glow text-white cursor-pointer"
+              title="Send (Enter)"
+            >
+              <Send className="w-4 h-4" />
+            </motion.button>
+          </div>
+          <div className="flex items-center justify-between px-3 mt-2">
+            <p className="text-[10px] text-text-muted/60 flex items-center gap-1.5">
+              <CornerDownLeft className="w-3 h-3" />
+              <span><span className="text-text-muted font-semibold">Enter</span> to send &bull; <span className="text-text-muted font-semibold">Shift+Enter</span> for newline</span>
+            </p>
+            {charCount > 0 && (
+              <span className="text-[10px] text-text-muted/50 font-mono">{charCount} chars</span>
+            )}
+          </div>
         </div>
       </footer>
     </div>
   );
 }
 
-function getSuggestions() {
-  return [
-    'What do you know about me so far?',
-    'Summarize my ingested documents',
-    'What topics are in my knowledge graph?',
-    'Find connections between my notes',
-  ];
+/* ── Assistant avatar with glow ── */
+function AssistantAvatar({ thinking = false, speaking = false }) {
+  return (
+    <div className="relative flex-shrink-0 w-10 h-10 mt-1">
+      {(thinking || speaking) && <div className="pulse-ring" />}
+      <div
+        className={`w-10 h-10 rounded-2xl bg-gradient-to-br from-primary/35 via-accent/25 to-secondary/15 flex items-center justify-center ring-1 ring-primary/30 shadow-[0_0_18px_rgba(99,102,241,0.3)] ${
+          thinking ? 'animate-breathe' : ''
+        }`}
+      >
+        <Bot className="w-5 h-5 text-primary-light" />
+      </div>
+    </div>
+  );
+}
+
+/* ── Welcome hero (empty state) ── */
+const SUGGESTIONS = [
+  { text: 'What do you know about me so far?', icon: UserRound,  hue: 'from-indigo-500/25 to-indigo-500/5',  ring: 'ring-indigo-400/30',  iconColor: 'text-indigo-300' },
+  { text: 'Summarize my ingested documents',   icon: FileText,   hue: 'from-violet-500/25 to-violet-500/5',  ring: 'ring-violet-400/30',  iconColor: 'text-violet-300' },
+  { text: 'What topics are in my knowledge graph?', icon: Network, hue: 'from-cyan-500/25 to-cyan-500/5',    ring: 'ring-cyan-400/30',    iconColor: 'text-cyan-300' },
+  { text: 'Find connections between my notes', icon: GitBranch,  hue: 'from-fuchsia-500/25 to-fuchsia-500/5', ring: 'ring-fuchsia-400/30', iconColor: 'text-fuchsia-300' },
+];
+
+const FEATURES = [
+  { icon: BrainCircuit, label: 'Graph RAG' },
+  { icon: Zap,          label: '<15 ms retrieval' },
+  { icon: Bookmark,     label: 'Cited answers' },
+];
+
+function WelcomeHero({ onPick }) {
+  return (
+    <div className="flex flex-col min-h-full">
+      <div className="m-auto w-full flex flex-col items-center text-center py-6">
+      {/* Orb */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.7 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+        className="relative w-24 h-24 mb-7"
+      >
+        <div className="absolute inset-[-16px] rounded-full bg-gradient-to-br from-primary/30 via-accent/20 to-secondary/20 blur-2xl animate-breathe" />
+        <div className="pulse-ring" />
+        <div className="pulse-ring pulse-ring-delayed" />
+        <div className="orb-ring" />
+        <div className="absolute inset-[5px] rounded-full bg-[#0a0d1d]/90 backdrop-blur flex items-center justify-center">
+          <BrainCircuit className="w-11 h-11 text-primary-light animate-float" strokeWidth={1.5} />
+        </div>
+      </motion.div>
+
+      {/* Headline */}
+      <motion.h3
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08 }}
+        className="font-display text-3xl sm:text-4xl font-bold hero-gradient-text mb-3 tracking-tight px-4"
+      >
+        Your memory, alive.
+      </motion.h3>
+
+      <motion.p
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.16 }}
+        className="text-sm text-text-secondary max-w-md leading-relaxed mb-5 px-4"
+      >
+        Ask anything about what you've taught me. Every answer is grounded in your
+        personal knowledge graph — with{' '}
+        <span className="text-accent-light font-medium">memory citations</span> and{' '}
+        <span className="text-success font-medium">retrieval metrics</span>.
+      </motion.p>
+
+      {/* Feature chips */}
+      <motion.div
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.24 }}
+        className="flex flex-wrap items-center justify-center gap-2 mb-8 px-4"
+      >
+        {FEATURES.map(({ icon: Icon, label }) => (
+          <div
+            key={label}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.08] text-[11px] font-medium text-text-secondary"
+          >
+            <Icon className="w-3.5 h-3.5 text-primary-light" />
+            {label}
+          </div>
+        ))}
+      </motion.div>
+
+      {/* Suggestions */}
+      <div className="w-full max-w-xl px-2">
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="text-[10px] uppercase tracking-[0.28em] text-text-muted/70 font-bold mb-4 flex items-center justify-center gap-2"
+        >
+          <Zap className="w-3.5 h-3.5 text-warning" />
+          Try asking
+        </motion.p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {SUGGESTIONS.map(({ text, icon: Icon, hue, ring, iconColor }, i) => (
+            <motion.button
+              key={text}
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.34 + i * 0.07, type: 'spring', stiffness: 260, damping: 22 }}
+              whileHover={{ y: -3 }}
+              onClick={() => onPick(text)}
+              className="sheen group text-left p-4 rounded-2xl glass-panel hover:border-primary/35 transition-colors duration-200 cursor-pointer"
+            >
+              <div
+                className={`w-8 h-8 rounded-xl bg-gradient-to-br ${hue} ring-1 ${ring} flex items-center justify-center mb-2.5 group-hover:scale-110 transition-transform`}
+              >
+                <Icon className={`w-4 h-4 ${iconColor}`} />
+              </div>
+              <span className="leading-snug block text-[13px] text-text-secondary group-hover:text-text-primary transition-colors">
+                {text}
+              </span>
+            </motion.button>
+          ))}
+        </div>
+      </div>
+      </div>
+    </div>
+  );
 }

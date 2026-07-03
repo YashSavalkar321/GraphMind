@@ -9,6 +9,7 @@ import {
   PanelLeftOpen,
   MoreHorizontal,
   Search,
+  History,
 } from 'lucide-react';
 import useAppStore from '../store/useAppStore';
 
@@ -65,16 +66,21 @@ export default function ChatSidebar() {
       <div
         className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-150 ${
           isActive
-            ? 'bg-primary/12 border border-primary/25 shadow-sm'
-            : 'border border-transparent hover:bg-white/[0.04] hover:border-white/[0.06]'
+            ? 'bg-gradient-to-r from-primary/15 to-accent/5 border border-primary/30 shadow-[0_0_16px_rgba(99,102,241,0.12)]'
+            : 'border border-transparent hover:bg-white/[0.04] hover:border-white/[0.07]'
         }`}
         onClick={() => switchChat(chat.id)}
       >
+        {/* Active accent bar */}
+        {isActive && (
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-full bg-gradient-to-b from-primary-light to-accent" />
+        )}
+
         {/* Icon */}
         <div
-          className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
+          className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
             isActive
-              ? 'bg-primary/20 text-primary-light'
+              ? 'bg-primary/20 text-primary-light shadow-[0_0_10px_rgba(99,102,241,0.25)]'
               : 'bg-white/[0.04] text-text-muted group-hover:text-text-secondary'
           }`}
         >
@@ -120,7 +126,7 @@ export default function ChatSidebar() {
         {menuOpenId === chat.id && (
           <div
             ref={menuRef}
-            className="absolute right-0 top-full mt-1 z-50 w-44 bg-surface-light border border-white/[0.08] rounded-xl shadow-2xl shadow-black/50 overflow-hidden animate-fade-in-scale"
+            className="absolute right-0 top-full mt-1 z-50 w-44 glass-strong rounded-xl overflow-hidden animate-fade-in-scale"
           >
             <button
               onClick={(e) => {
@@ -128,7 +134,7 @@ export default function ChatSidebar() {
                 chat.pinned ? unpinChat(chat.id) : pinChat(chat.id);
                 setMenuOpenId(null);
               }}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-white/[0.04] transition-colors cursor-pointer"
+              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-white/[0.05] transition-colors cursor-pointer"
             >
               {chat.pinned ? (
                 <>
@@ -164,7 +170,7 @@ export default function ChatSidebar() {
       {/* Toggle button — always visible */}
       <button
         onClick={toggleSidebar}
-        className={`fixed top-[116px] lg:top-[140px] z-50 p-2 rounded-xl bg-surface/90 border border-white/[0.08] text-text-muted hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer backdrop-blur-md shadow-lg btn-press ${
+        className={`fixed top-[116px] lg:top-[140px] z-50 p-2 rounded-xl glass-panel text-text-muted hover:text-text-primary hover:border-primary/40 transition-all cursor-pointer btn-press ${
           sidebarOpen ? 'left-3 lg:left-[288px]' : 'left-3'
         }`}
         title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
@@ -179,28 +185,36 @@ export default function ChatSidebar() {
       {/* Overlay backdrop on mobile */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
           onClick={toggleSidebar}
         />
       )}
 
       {/* Sidebar panel */}
       <aside
-        className={`fixed top-[116px] lg:top-[60px] left-0 bottom-0 z-40 w-72 bg-surface border-r border-white/[0.06] flex flex-col transition-transform duration-250 ease-out ${
+        className={`fixed top-[116px] lg:top-[60px] left-0 bottom-0 z-40 w-72 glass border-r border-white/[0.07] flex flex-col transition-transform duration-250 ease-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/[0.06] flex-shrink-0">
-          <h2 className="text-sm font-bold text-text-primary tracking-tight">
-            Chat History
-          </h2>
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 text-primary-light" />
+            <h2 className="font-display text-sm font-bold text-text-primary tracking-tight">
+              Conversations
+            </h2>
+            {chatHistory.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-md bg-primary/15 border border-primary/25 text-[10px] font-bold text-primary-light">
+                {chatHistory.length}
+              </span>
+            )}
+          </div>
           <button
             onClick={newChat}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-light text-white text-xs font-semibold transition-all cursor-pointer btn-press shadow-md shadow-primary/20"
+            className="sheen flex items-center gap-1.5 px-3 py-1.5 rounded-lg btn-glow text-white text-xs font-semibold cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            New Chat
+            New
           </button>
         </div>
 
@@ -213,7 +227,7 @@ export default function ChatSidebar() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search chats…"
-              className="w-full pl-9 pr-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-sm text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-primary/40 focus:bg-white/[0.06] transition-all"
+              className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.07] text-sm text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-primary/45 focus:bg-white/[0.06] focus:shadow-[0_0_0_3px_rgba(99,102,241,0.1)] transition-all"
             />
           </div>
         </div>
@@ -254,16 +268,19 @@ export default function ChatSidebar() {
           {/* Empty state */}
           {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center px-4 py-12">
-              <div className="w-14 h-14 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-4">
-                <MessageSquare className="w-7 h-7 text-text-muted/40" />
+              <div className="relative w-14 h-14 mb-4">
+                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-primary/15 to-accent/10 blur-md" />
+                <div className="relative w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-center">
+                  <MessageSquare className="w-6 h-6 text-text-muted/50" />
+                </div>
               </div>
-              <p className="text-sm text-text-muted font-medium mb-1">No chats yet</p>
+              <p className="text-sm text-text-secondary font-medium mb-1">No chats yet</p>
               <p className="text-xs text-text-muted/60 mb-4">
                 Start a conversation to see it here
               </p>
               <button
                 onClick={newChat}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary/15 text-primary-light text-xs font-semibold hover:bg-primary/25 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary/15 border border-primary/30 text-primary-light text-xs font-semibold hover:bg-primary/25 hover:shadow-[0_0_16px_rgba(99,102,241,0.25)] transition-all cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 New Chat
